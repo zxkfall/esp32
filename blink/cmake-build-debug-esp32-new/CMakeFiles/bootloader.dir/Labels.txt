@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/CMakeFiles/bootloader
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/CMakeFiles/bootloader.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/CMakeFiles/bootloader-complete.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+/Users/xingkun.zhang/Documents/study/code/esp32/blink/cmake-build-debug-esp32-new/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
