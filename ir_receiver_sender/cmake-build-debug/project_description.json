@@ -1,7 +1,11 @@
 {
     "version":            "1.1",
     "project_name":       "ir_receiver_sender",
+<<<<<<< HEAD
     "project_version":    "e37cc95",
+=======
+    "project_version":    "e3b2c54-dirty",
+>>>>>>> 918a4dc (feat: ir receiver progrom)
     "project_path":       "/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender",
     "idf_path":           "/Users/xingkun.zhang/Documents/tools/esp/esp-idf",
     "build_dir":          "/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug",
@@ -1090,7 +1094,11 @@
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/main/libmain.a",
+<<<<<<< HEAD
             "sources": [ "/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/main/ir_receiver_sender.c", "/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/main/ir_nec_encoder.c" ],
+=======
+            "sources": [ "/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/main/ir_receiver_sender.c" ],
+>>>>>>> 918a4dc (feat: ir receiver progrom)
             "include_dirs": [ "." ]
         },
         "mbedtls": {

@@ -112,6 +112,7 @@
 3	24	0	/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/build/bootloader/esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
 3	25	0	esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
 3	25	0	/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/build/bootloader/esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
+<<<<<<< HEAD
 4	25	0	esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
 4	25	0	/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/build/bootloader/esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
 3	23	0	esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
@@ -142,3 +143,5 @@
 4	24	0	/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/build/bootloader/esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
 3	24	0	esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
 3	24	0	/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/build/bootloader/esp-idf/esptool_py/CMakeFiles/bootloader_check_size	6071d9c569dbdb29
+=======
+>>>>>>> 918a4dc (feat: ir receiver progrom)

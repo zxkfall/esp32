@@ -295,6 +295,10 @@
 /Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/newlib/port/CMakeFiles/install/local.dir
 /Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/newlib/port/CMakeFiles/install/strip.dir
 /Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/cxx/CMakeFiles/__idf_cxx.dir
+<<<<<<< HEAD
+=======
+/Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/cxx/CMakeFiles/libgcc_cxx.dir
+>>>>>>> 918a4dc (feat: ir receiver progrom)
 /Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/cxx/CMakeFiles/edit_cache.dir
 /Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/cxx/CMakeFiles/rebuild_cache.dir
 /Users/xingkun.zhang/Documents/study/code/esp32/ir_receiver_sender/cmake-build-debug/esp-idf/cxx/CMakeFiles/list_install_components.dir
