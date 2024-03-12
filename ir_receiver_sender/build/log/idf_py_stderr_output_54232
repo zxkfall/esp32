@@ -1,0 +1,35 @@
+CMake Warning at /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/git_submodules.cmake:52 (message):
+  Git submodule components/bt/controller/lib_esp32c6/esp32c6-bt-lib is out of
+  date.  Run the following command to fix: git submodule update --init
+  --recursive
+Call Stack (most recent call first):
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/build.cmake:80 (git_submodule_check)
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/build.cmake:242 (__build_get_idf_git_revision)
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/idf.cmake:52 (__build_init)
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/project.cmake:29 (include)
+  CMakeLists.txt:7 (include)
+
+
+CMake Warning at /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/git_submodules.cmake:52 (message):
+  Git submodule components/bt/controller/lib_esp32h2/esp32h2-bt-lib is out of
+  date.  Run the following command to fix: git submodule update --init
+  --recursive
+Call Stack (most recent call first):
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/build.cmake:80 (git_submodule_check)
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/build.cmake:242 (__build_get_idf_git_revision)
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/idf.cmake:52 (__build_init)
+  /Users/xingkun.zhang/Documents/tools/esp/esp-idf/tools/cmake/project.cmake:29 (include)
+  CMakeLists.txt:7 (include)
+
+
+CMake Error at /Users/xingkun.zhang/Documents/tools/esp/esp-idf/components/cxx/CMakeLists.txt:74 (add_library):
+  Cannot find source file:
+
+    ../../../../../study/code/esp32/ir_receiver_sender/main/ir_nec_encoder.c
+
+  Tried extensions .c .C .c++ .cc .cpp .cxx .cu .mpp .m .M .mm .ixx .cppm
+  .ccm .cxxm .c++m .h .hh .h++ .hm .hpp .hxx .in .txx .f .F .for .f77 .f90
+  .f95 .f03 .hip .ispc
+
+
+CMake Generate step failed.  Build files cannot be regenerated correctly.
