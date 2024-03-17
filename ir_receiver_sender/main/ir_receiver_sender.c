@@ -1,4 +1,6 @@
 #include <driver/gpio.h>
+#include <math.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
@@ -139,63 +141,87 @@ void app_main() {
     rmt_copy_encoder_config_t raw_config = {};
     rmt_encoder_handle_t raw_encoder = NULL;
     ESP_ERROR_CHECK(rmt_new_copy_encoder(&raw_config, &raw_encoder));
-
+    int learning_times = 4;
+    int current_learning_times = 0;
+    size_t symbol_num = 300;
+    rmt_symbol_word_t total_raw_symbols[learning_times][symbol_num];
+    rmt_symbol_word_t *total_avg;
+    uint8_t is_ready_send = 0;
     while (1) {
-        if (xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
-            // 解析接收到的符号数据
+        if (xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS &&
+            current_learning_times < learning_times && !is_ready_send) {
+            ESP_LOGI(TAG, "waiting for receive, start learning times: %d\r\n", current_learning_times + 1);
             rmt_symbol_word_t *receivedSymbols = rx_data.received_symbols;
-            printf("lengths: %d---\r\n", rx_data.num_symbols);
-
-            if (rx_data.num_symbols >= 70) {
-                ESP_LOGI(TAG, "RECEIVE");
-                rmt_symbol_word_t raw_symbols_t[rx_data.num_symbols];
-                for (int i = 0; i < rx_data.num_symbols; ++i) {
-                    printf("%d,%d ", receivedSymbols[i].duration0, receivedSymbols[i].duration1);
-                    if (i + 1 % 20 == 0) {
-                        printf("\r\n");
-                    }
-                    if (receivedSymbols[i].duration1 > 4000) {
-                        printf(" index:%d \r\n", i);
-                    }
-                }
-                printf("\r\n");
-                printf("raw_symbols_t.length: %d\r\n", sizeof(raw_symbols_t));
-                for (int i = 0; i < rx_data.num_symbols; ++i) {
-                    rmt_symbol_word_t *symbol = &raw_symbols_t[i];
-                    rmt_symbol_word_t re_sy = receivedSymbols[i];
-                    symbol->duration0 = re_sy.duration0;
-                    symbol->duration1 = re_sy.duration1;
-                    // Why use this? Because duration will deviate from the standard value, 
-                    // its value will become smaller or larger when loop too many times
-                    uint16_t allow_acc = 100;
-                    set_duration_with_same_acc(symbol, 9000, allow_acc);
-                    set_duration_with_same_acc(symbol, 4500, allow_acc);
-                    set_duration_with_same_acc(symbol, 646, allow_acc);
-                    set_duration_with_same_acc(symbol, 516, allow_acc);
-                    set_duration_with_same_acc(symbol, 1643, allow_acc);
-                    set_duration_with_same_acc(symbol, 20000, allow_acc);
-                    set_duration_with_same_acc(symbol, 7250, allow_acc);
-                }
-                // also work fine if only learning once
-//                for (int i = 0; i < rx_data.num_symbols; ++i) {
-//                    rmt_symbol_word_t re_sy = receivedSymbols[i];
-//                    raw_symbols_t[i].duration0 = re_sy.duration0;
-//                    raw_symbols_t[i].duration1 = re_sy.duration1;
-//                    raw_symbols_t[i].level0 = 1;
-//                    raw_symbols_t[i].level1 = 0;
-//                }
-
-                ESP_LOGI(TAG, ">70\r\n");
-                ESP_ERROR_CHECK(rmt_receive(rx_chan, raw_symbols, sizeof(raw_symbols), &receive_config));
-                esp_rom_delay_us(1000000);
-                ESP_LOGI(TAG, ">transmit\r\n");
-                ESP_LOGI(TAG, ">transmit length: %d\r\n", sizeof(raw_symbols_t));
-                ESP_ERROR_CHECK(
-                        rmt_transmit(tx_chan, raw_encoder, raw_symbols_t, sizeof(raw_symbols_t), &transmit_config));
-            } else {
-                ESP_LOGI(TAG, "<70\r\n");
-                ESP_ERROR_CHECK(rmt_receive(rx_chan, raw_symbols, sizeof(raw_symbols), &receive_config));
+            symbol_num = rx_data.num_symbols;
+            for (int i = 0; i < rx_data.num_symbols; ++i) {
+                total_raw_symbols[current_learning_times][i] = receivedSymbols[i];
             }
-        } else {}
+            printf("lengths: %d---\r\n", rx_data.num_symbols);
+            for (int i = 0; i < rx_data.num_symbols; ++i) {
+                printf("%d,%d ", receivedSymbols[i].duration0, receivedSymbols[i].duration1);
+                if (i + 1 % 20 == 0) {
+                    printf("\r\n");
+                }
+            }
+            printf("\r\n");
+            current_learning_times++;
+            ESP_ERROR_CHECK(rmt_receive(rx_chan, raw_symbols, sizeof(raw_symbols), &receive_config));
+        }
+        if (current_learning_times == learning_times && !is_ready_send) {
+            printf("\r\n");
+            printf("start to get the average value\r\n");
+
+            // 定义相近值的类别数组
+            total_avg = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * symbol_num);
+
+            uint32_t duration0s[symbol_num];
+            uint32_t duration1s[symbol_num];
+            for (int i = 0; i < symbol_num; ++i) {
+                duration0s[i] = 0;
+                duration1s[i] = 0;
+            }
+            for (int i = 0; i < learning_times; ++i) {
+                for (int j = 0; j < symbol_num; ++j) {
+                    duration0s[j] += total_raw_symbols[i][j].duration0;
+                    duration1s[j] += total_raw_symbols[i][j].duration1;
+                }
+            }
+            for (int i = 0; i < symbol_num; ++i) {
+                duration0s[i] /= learning_times;
+                duration1s[i] /= learning_times;
+            }
+
+            for (int i = 0; i < symbol_num; ++i) {
+                total_avg[i].duration0 = duration0s[i];
+                total_avg[i].duration1 = duration1s[i];
+                total_avg[i].level0 = 1;
+                total_avg[i].level1 = 0;
+            }
+
+            printf("average value: \r\n");
+            for (int i = 0; i < symbol_num; ++i) {
+                printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
+                if (i + 1 % 20 == 0) {
+                    printf("\r\n");
+                }
+            }
+
+            is_ready_send = 1;
+        }
+
+        if (is_ready_send) {
+            ESP_LOGI(TAG, "start to send the average value\r\n");
+            ESP_LOGI(TAG, "===============================================================\r\n");
+            ESP_ERROR_CHECK(rmt_transmit(tx_chan, raw_encoder, total_avg, symbol_num * 4, &transmit_config));
+            for (int i = 0; i < symbol_num; ++i) {
+                printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
+                if (i + 1 % 20 == 0) {
+                    printf("\r\n");
+                }
+            }
+            ESP_LOGI(TAG, "send the average value done\r\n");
+            ESP_LOGI(TAG, "===============================================================\r\n");
+            esp_rom_delay_us(1000000);
+        }
     }
 }
