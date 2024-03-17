@@ -1,2 +1,2 @@
-idf_component_register(SRCS "ir_receiver_sender.c" "ir_nec_encoder.c"
+idf_component_register(SRCS "ir_receiver_sender.c"
                        INCLUDE_DIRS ".")

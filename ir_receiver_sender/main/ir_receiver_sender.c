@@ -246,113 +246,83 @@ void app_main() {
 
             if (rx_data.num_symbols >= 70) {
                 ESP_LOGI(TAG, "RECEIVE");
-                rmt_symbol_word_t raw_symbols_t[rx_data.num_symbols/2];
-                rmt_symbol_word_t raw_symbols_t_2[rx_data.num_symbols/2];
+                rmt_symbol_word_t raw_symbols_t[rx_data.num_symbols];
                 for (int i = 0; i < rx_data.num_symbols; ++i) {
                     printf("%d,%d ", receivedSymbols[i].duration0, receivedSymbols[i].duration1);
                     if (i+1%20 == 0){
                         printf("\r\n");
                     }
-//                    if (receivedSymbols[i].duration1 > 19000) {
-//                        printf(" index:%d \r\n", i);
-//                    }
                     if (receivedSymbols[i].duration1 > 4000) {
                         printf(" index:%d \r\n", i);
                     }
                 }
                 printf("\r\n");
                 printf("raw_symbols_t.length: %d\r\n", sizeof(raw_symbols_t));
-//                for (int i = 0; i < rx_data.num_symbols; ++i) {
-////                    uint16_t duration0 = receivedSymbols[i].duration0;
-////                    raw_symbols_t[i].duration0 = duration0;
-////                    uint16_t duration1 = receivedSymbols[i].duration1;
-////                    raw_symbols_t[i].duration1 = duration1;
-////                    if (duration0 < 9000 + 100 && duration0 > 9000 - 100) {
-////                        raw_symbols_t[i].duration0 = 9000;
-////                    }
-////                    if (duration1 < 9000 + 100 && duration1 > 9000 - 100) {
-////                        raw_symbols_t[i].duration1 = 9000;
-////                    }
-////                    if (duration0 < 4500 + 100 && duration0 > 4500 - 100) {
-////                        raw_symbols_t[i].duration0 = 4500;
-////                    }
-////                    if (duration1 < 4500 + 100 && duration1 > 4500 - 100) {
-////                        raw_symbols_t[i].duration1 = 4500;
-////                    }
-////                    if (duration0 < 646 + 100 && duration0 > 646 - 100) {
-////                        raw_symbols_t[i].duration0 = 646;
-////                    }
-////                    if (duration1 < 646 + 100 && duration1 > 646 - 100) {
-////                        raw_symbols_t[i].duration1 = 646;
-////                    }
-////                    if (duration0 < 516 + 100 && duration0 > 516 - 100) {
-////                        raw_symbols_t[i].duration0 = 516;
-////                    }
-////                    if (duration1 < 516 + 100 && duration1 > 516 - 100) {
-////                        raw_symbols_t[i].duration1 = 516;
-////                    }
-////                    if (duration0 < 1643 + 100 && duration0 > 1643 - 100) {
-////                        raw_symbols_t[i].duration0 = 1643;
-////                    }
-////                    if (duration1 < 1643 + 100 && duration1 > 1643 - 100) {
-////                        raw_symbols_t[i].duration1 = 1643;
-////                    }
-////                    if (duration0 < 20000 + 100 && duration0 > 20000 - 100) {
-////                        raw_symbols_t[i].duration0 = 20000;
-////                    }
-////                    if (duration1 < 20000 + 100 && duration1 > 20000 - 100) {
-////                        raw_symbols_t[i].duration1 = 20000;
-////                    }
-////                    if (duration0 == 0) {
-////                        raw_symbols_t[i].duration0 = 20000;
-////                    }
-////                    if (duration1 == 0) {
-////                        raw_symbols_t[i].duration1 = 20000;
-////                    }
-////                    raw_symbols_t[i].level0 = 1;
-////                    raw_symbols_t[i].level1 = 0;
-//
-//
-//                    rmt_symbol_word_t re_sy = receivedSymbols[i];
-//                    raw_symbols_t[i].duration0 = re_sy.duration0;
-//                    raw_symbols_t[i].duration1 = re_sy.duration1;
-////                    if (i == 69){
-////                        raw_symbols_t[i].duration1 = 1650;
-////                    }
-//                    raw_symbols_t[i].level0 = 1;
-//                    raw_symbols_t[i].level1 = 0;
-//                }
-
-                for (int i = 0; i < 70; ++i) {
-                    rmt_symbol_word_t re_sy = receivedSymbols[i];
-                    raw_symbols_t[i].duration0 = re_sy.duration0;
-                    raw_symbols_t[i].duration1 = re_sy.duration1;
+                for (int i = 0; i < rx_data.num_symbols; ++i) {
+                    uint16_t duration0 = receivedSymbols[i].duration0;
+                    raw_symbols_t[i].duration0 = duration0;
+                    uint16_t duration1 = receivedSymbols[i].duration1;
+                    raw_symbols_t[i].duration1 = duration1;
+                    if (duration0 < 9000 + 100 && duration0 > 9000 - 100) {
+                        raw_symbols_t[i].duration0 = 9000;
+                    }
+                    if (duration1 < 9000 + 100 && duration1 > 9000 - 100) {
+                        raw_symbols_t[i].duration1 = 9000;
+                    }
+                    if (duration0 < 4500 + 100 && duration0 > 4500 - 100) {
+                        raw_symbols_t[i].duration0 = 4500;
+                    }
+                    if (duration1 < 4500 + 100 && duration1 > 4500 - 100) {
+                        raw_symbols_t[i].duration1 = 4500;
+                    }
+                    if (duration0 < 646 + 100 && duration0 > 646 - 100) {
+                        raw_symbols_t[i].duration0 = 646;
+                    }
+                    if (duration1 < 646 + 100 && duration1 > 646 - 100) {
+                        raw_symbols_t[i].duration1 = 646;
+                    }
+                    if (duration0 < 516 + 100 && duration0 > 516 - 100) {
+                        raw_symbols_t[i].duration0 = 516;
+                    }
+                    if (duration1 < 516 + 100 && duration1 > 516 - 100) {
+                        raw_symbols_t[i].duration1 = 516;
+                    }
+                    if (duration0 < 1643 + 100 && duration0 > 1643 - 100) {
+                        raw_symbols_t[i].duration0 = 1643;
+                    }
+                    if (duration1 < 1643 + 100 && duration1 > 1643 - 100) {
+                        raw_symbols_t[i].duration1 = 1643;
+                    }
+                    if (duration0 < 20000 + 100 && duration0 > 20000 - 100) {
+                        raw_symbols_t[i].duration0 = 20000;
+                    }
+                    if (duration1 < 20000 + 100 && duration1 > 20000 - 100) {
+                        raw_symbols_t[i].duration1 = 20000;
+                    }
+                    if (duration0 == 0) {
+                        raw_symbols_t[i].duration0 = 20000;
+                    }
+                    if (duration1 == 0) {
+                        raw_symbols_t[i].duration1 = 20000;
+                    }
                     raw_symbols_t[i].level0 = 1;
                     raw_symbols_t[i].level1 = 0;
                 }
 
-                for (int i = 0; i < 18; ++i) {
-                    raw_symbols_t_2[i].duration0 = 1000;
-                    raw_symbols_t_2[i].duration1 = 1000;
-                    raw_symbols_t_2[i].level0 = 1;
-                    raw_symbols_t_2[i].level1 = 1;
-                }
-
-                for (int i = 0; i < 70; ++i) {
-                    rmt_symbol_word_t re_sy = receivedSymbols[i+70];
-                    raw_symbols_t_2[i].duration0 = re_sy.duration0;
-                    raw_symbols_t_2[i].duration1 = re_sy.duration1;
-                    raw_symbols_t_2[i].level0 = 1;
-                    raw_symbols_t_2[i].level1 = 0;
-                }
+//                for (int i = 0; i < rx_data.num_symbols; ++i) {
+//                    rmt_symbol_word_t re_sy = receivedSymbols[i];
+//                    raw_symbols_t[i].duration0 = re_sy.duration0;
+//                    raw_symbols_t[i].duration1 = re_sy.duration1;
+//                    raw_symbols_t[i].level0 = 1;
+//                    raw_symbols_t[i].level1 = 0;
+//                }
 
                 ESP_LOGI(TAG, ">70\r\n");
                 ESP_ERROR_CHECK(rmt_receive(rx_chan, raw_symbols, sizeof(raw_symbols), &receive_config));
                 esp_rom_delay_us(1000000);
                 ESP_LOGI(TAG, ">transmit\r\n");
+                ESP_LOGI(TAG, ">transmit length: %d\r\n", sizeof(raw_symbols_t));
                 ESP_ERROR_CHECK(rmt_transmit(tx_chan, raw_encoder, raw_symbols_t, sizeof(raw_symbols_t), &transmit_config));
-                esp_rom_delay_us(40*1000);
-                ESP_ERROR_CHECK(rmt_transmit(tx_chan, raw_encoder, raw_symbols_t_2, sizeof(raw_symbols_t_2), &transmit_config));
             } else {
                 ESP_LOGI(TAG, "<70\r\n");
                 ESP_ERROR_CHECK(rmt_receive(rx_chan, raw_symbols, sizeof(raw_symbols), &receive_config));
