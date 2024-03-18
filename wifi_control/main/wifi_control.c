@@ -254,7 +254,7 @@ void configure_wifi(void) {
     // Initialize default station as network interface instance (esp-netif)
     esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
     assert(sta_netif);
-
+    esp_netif_set_hostname(sta_netif, "IR_Remote_Control");
     // Initialize and start WiFi
     wifi_config_t wifi_config = {
             .sta = {
