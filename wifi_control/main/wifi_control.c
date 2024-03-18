@@ -7,6 +7,9 @@
 #include "esp_log.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_rx.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
 
 #define EXAMPLE_IR_RESOLUTION_HZ     (1*1000*1000) // 1MHz resolution, 1 tick = 1us
 #define EXAMPLE_IR_TX_GPIO_NUM       18
@@ -16,11 +19,18 @@ static uint8_t led_level = 0x0;
 static rmt_channel_handle_t tx_channel = NULL;
 static rmt_channel_handle_t rx_channel = NULL;
 
+#define DEFAULT_SSID "Redmi K30 Pro"
+#define DEFAULT_PWD "zzz123456"
+#define WIFI_STATUS_GPIO_NUM 2
+
 static void configure_led(void) {
     ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
     gpio_reset_pin(GPIO_NUM_16);
     /* Set the GPIO as a push/pull output */
     gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
+
+    gpio_reset_pin(WIFI_STATUS_GPIO_NUM);
+    gpio_set_direction(WIFI_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
 }
 
 static bool
@@ -43,8 +53,16 @@ void configure_ir_tx();
 
 void configure_ir_rx();
 
+void configure_wifi();
+
+void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+
+void initialize_nvs();
+
 void app_main() {
     configure_led();
+    initialize_nvs();
+    configure_wifi();
     configure_ir_tx();
     configure_ir_rx();
     // enable channel
@@ -181,6 +199,15 @@ void app_main() {
     }
 }
 
+void initialize_nvs() {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+}
+
 void configure_ir_rx() {
     rmt_rx_channel_config_t rx_chan_config = {
             .clk_src = RMT_CLK_SRC_DEFAULT,   // 选择时钟源
@@ -212,4 +239,50 @@ void configure_ir_tx() {
     };
     // 将载波调制到 TX 通道
     ESP_ERROR_CHECK(rmt_apply_carrier(tx_channel, &tx_carrier_cfg));
+}
+
+void configure_wifi(void) {
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, NULL));
+
+    // Initialize default station as network interface instance (esp-netif)
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    assert(sta_netif);
+
+    // Initialize and start WiFi
+    wifi_config_t wifi_config = {
+            .sta = {
+                    .ssid = DEFAULT_SSID,
+                    .password = DEFAULT_PWD,
+                    .scan_method = WIFI_FAST_SCAN,
+                    .sort_method = WIFI_FAST_SCAN,
+                    .threshold.rssi = -127,
+                    .threshold.authmode = WIFI_AUTH_OPEN,
+            },
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+}
+
+void event_handler(void *arg, esp_event_base_t event_base,
+                   int32_t event_id, void *event_data) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        esp_wifi_connect();
+        /* Set the GPIO level according to the state (LOW or HIGH)*/
+        gpio_set_level(WIFI_STATUS_GPIO_NUM, 0);
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
+        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        /* Set the GPIO level according to the state (LOW or HIGH)*/
+        gpio_set_level(WIFI_STATUS_GPIO_NUM, 1);
+    }
 }
