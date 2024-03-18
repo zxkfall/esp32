@@ -85,21 +85,27 @@ void app_main() {
     rmt_symbol_word_t *total_avg;
     uint8_t is_ready_send = 0;
     uint8_t is_inited = 0;
-    ESP_LOGI(TAG, "Starting init params: symbol_length, please send first IR signal.\r\n");
-    ESP_LOGI(TAG, "===============================================================\r\n");
+    ESP_LOGI(TAG, "Starting init params: symbol_length, please send first IR signal.");
+    ESP_LOGI(TAG, "===============================================================");
     while (1) {
         if (!is_inited && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
-            ESP_LOGI(TAG, "Set symbol_length successful, symbol_length: %d\r\n", rx_data.num_symbols);
-            ESP_LOGI(TAG, "Next, you need to send `same` IR signal 4 times\r\n");
-            ESP_LOGI(TAG, "===============================================================\r\n");
+            symbol_num = rx_data.num_symbols;
+            ESP_LOGI(TAG, "Set symbol_length successful, symbol_length: %d", rx_data.num_symbols);
+            ESP_LOGI(TAG, "Next, you need to send `same` IR signal 4 times");
+            ESP_LOGI(TAG, "===============================================================");
             is_inited = 1;
             ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
         } else {
             if (current_learning_times < learning_times && !is_ready_send &&
                 xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
-                ESP_LOGI(TAG, "waiting for receive, start learning times: %d\r\n", current_learning_times + 1);
+                if (symbol_num != rx_data.num_symbols) {
+                    ESP_LOGI(TAG, "symbol_length not match, current symbol_length is %d, please send again",
+                             rx_data.num_symbols);
+                    ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
+                    continue;
+                }
+                ESP_LOGI(TAG, "waiting for receive, start learning times: %d", current_learning_times + 1);
                 rmt_symbol_word_t *receivedSymbols = rx_data.received_symbols;
-                symbol_num = rx_data.num_symbols;
                 for (int i = 0; i < rx_data.num_symbols; ++i) {
                     total_raw_symbols[current_learning_times][i] = receivedSymbols[i];
                 }
@@ -116,7 +122,7 @@ void app_main() {
             }
             if (current_learning_times == learning_times && !is_ready_send) {
                 printf("\r\n");
-                printf("start to get the average value\r\n");
+                ESP_LOGI(TAG, "start to get the average value");
 
                 // 定义相近值的类别数组
                 total_avg = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * symbol_num);
@@ -145,7 +151,7 @@ void app_main() {
                     total_avg[i].level1 = 0;
                 }
 
-                printf("average value: \r\n");
+                ESP_LOGI(TAG, "average value: ");
                 for (int i = 0; i < symbol_num; ++i) {
                     printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
                     if (i + 1 % 20 == 0) {
@@ -157,8 +163,8 @@ void app_main() {
             }
 
             if (is_ready_send) {
-                ESP_LOGI(TAG, "start to send the average value\r\n");
-                ESP_LOGI(TAG, "===============================================================\r\n");
+                ESP_LOGI(TAG, "start to send the average value");
+                ESP_LOGI(TAG, "===============================================================");
                 ESP_ERROR_CHECK(rmt_transmit(tx_channel, raw_encoder, total_avg, symbol_num * 4, &transmit_config));
                 for (int i = 0; i < symbol_num; ++i) {
                     printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
@@ -166,8 +172,9 @@ void app_main() {
                         printf("\r\n");
                     }
                 }
-                ESP_LOGI(TAG, "send the average value done\r\n");
-                ESP_LOGI(TAG, "===============================================================\r\n");
+                printf("\r\n");
+                ESP_LOGI(TAG, "send the average value done");
+                ESP_LOGI(TAG, "===============================================================");
                 esp_rom_delay_us(1000000);
             }
         }
