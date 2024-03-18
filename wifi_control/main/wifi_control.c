@@ -10,6 +10,8 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
+#include "esp_http_server.h"
+
 
 #define EXAMPLE_IR_RESOLUTION_HZ     (1*1000*1000) // 1MHz resolution, 1 tick = 1us
 #define EXAMPLE_IR_TX_GPIO_NUM       18
@@ -49,6 +51,64 @@ rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_
     return high_task_wakeup == pdTRUE;
 }
 
+static esp_err_t turn_on_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "LED turned on");
+    httpd_resp_send(req, "LED turned on", strlen("LED turned on"));
+    return ESP_OK;
+}
+
+static esp_err_t turn_off_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "LED turned off");
+    httpd_resp_send(req, "LED turned off", strlen("LED turned off"));
+    return ESP_OK;
+}
+
+static esp_err_t index_handler(httpd_req_t *req) {
+    // index html
+    char *indexBuffer = "<html><head><title>ESP32 LED</title>"
+                        "<script>"
+                        "function sendRequest(url) {"
+                        "  var xhr = new XMLHttpRequest();"
+                        "  xhr.open('GET', url, true);"
+                        "  xhr.send();"
+                        "}"
+                        "</script>"
+                        "</head><body>"
+                        "<h1>ESP32 LED</h1>"
+                        "<button onclick=\"sendRequest('/turnOff');\">Turn Off</button>"
+                        "<br>"
+                        "<button onclick=\"sendRequest('/turnOn');\">Turn On</button>"
+                        "</body></html>";
+    httpd_resp_send(req, indexBuffer,
+                    strlen(indexBuffer));
+    return ESP_OK;
+}
+
+httpd_uri_t turn_on = {
+        .uri       = "/turnOn",
+        .method    = HTTP_GET,
+        .handler   = turn_on_handler,
+};
+
+httpd_uri_t turn_off = {
+        .uri       = "/turnOff",
+        .method    = HTTP_GET,
+        .handler   = turn_off_handler,
+};
+
+httpd_uri_t index_html = {
+        .uri       = "/",
+        .method    = HTTP_GET,
+        .handler   = index_handler,
+};
+
+static const httpd_uri_t *handlers[] = {
+        &turn_on,
+        &turn_off,
+        &index_html,
+        NULL
+};
+
 void configure_ir_tx();
 
 void configure_ir_rx();
@@ -59,10 +119,13 @@ void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, voi
 
 void initialize_nvs();
 
+void configure_http_server();
+
 void app_main() {
     configure_led();
     initialize_nvs();
     configure_wifi();
+    configure_http_server();
     configure_ir_tx();
     configure_ir_rx();
     // enable channel
@@ -284,5 +347,15 @@ void event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         /* Set the GPIO level according to the state (LOW or HIGH)*/
         gpio_set_level(WIFI_STATUS_GPIO_NUM, 1);
+    }
+}
+
+void configure_http_server(){
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    httpd_handle_t server;
+    if (httpd_start(&server, &config) == ESP_OK) {
+        for (int i = 0; handlers[i]; i++) {
+            httpd_register_uri_handler(server, handlers[i]);
+        }
     }
 }
