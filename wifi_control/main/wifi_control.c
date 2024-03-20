@@ -38,6 +38,8 @@ esp_err_t save_run_time(void);
 
 esp_err_t print_what_saved(void);
 
+void rmt_send_task(void *pvParameters);
+
 static void configure_led(void) {
     ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
     gpio_reset_pin(GPIO_NUM_16);
@@ -51,8 +53,7 @@ static void configure_led(void) {
     gpio_set_direction(REQUEST_GPIO_NUM, GPIO_MODE_OUTPUT);
 }
 
-static bool
-rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
+static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
 
     BaseType_t high_task_wakeup = pdFALSE;
     //set led on
@@ -67,20 +68,18 @@ rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_
 }
 
 static esp_err_t turn_on_handler(httpd_req_t *req) {
-//    ESP_LOGI(TAG, "LED turned on");
-//    save_run_time();
+    save_run_time();
     gpio_set_level(REQUEST_GPIO_NUM, 1);
     httpd_resp_send(req, "LED turned on", strlen("LED turned on"));
     return ESP_OK;
 }
 
 static esp_err_t turn_off_handler(httpd_req_t *req) {
-//    ESP_LOGI(TAG, "LED turned off");
-//    print_what_saved();
     gpio_set_level(REQUEST_GPIO_NUM, 0);
 
     if (total_avg == NULL) {
-        httpd_resp_send(req, "LED turned off, the average value is NULL", strlen("LED turned off, the average value is NULL"));
+        httpd_resp_send(req, "LED turned off, the average value is NULL",
+                        strlen("LED turned off, the average value is NULL"));
         return ESP_OK;
     }
     char result[symbol_num * 2 * 6 + 100]; // 存储结果的字符串，确保足够大，以防溢出
@@ -180,21 +179,7 @@ esp_err_t save_run_time(void) {
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     printf("Run time===2222==========:\n");
 
-//    // Read previously saved blob if available
-//    rmt_symbol_word_t *saved_symbols = malloc(required_size + sizeof(rmt_symbol_word_t));
-////    uint32_t *run_time = malloc(required_size + sizeof(uint32_t));
-//    if (required_size > 0) {
-//        err = nvs_get_blob(my_handle, "run_time", saved_symbols, &required_size);
-//        if (err != ESP_OK) {
-//            free(saved_symbols);
-//            return err;
-//        }
-//    }
-
-    // Write value including previously saved blob if available
-//    required_size += sizeof(rmt_symbol_word_t);
-//    saved_symbols[required_size / sizeof(uint32_t) - 1] = total_avg;
-    rmt_symbol_word_t *saved_symbols = malloc(140);
+    rmt_symbol_word_t *saved_symbols = malloc(sizeof(rmt_symbol_word_t) * 140);
     for (int i = 0; i < 140; ++i) {
         printf("index: %d  %d,%d ", i, total_avg[i].duration0, total_avg[i].duration1);
         saved_symbols[i] = total_avg[i];
@@ -215,11 +200,6 @@ esp_err_t save_run_time(void) {
     return ESP_OK;
 }
 
-/* Read from NVS and print restart counter
-   and the table with run times.
-   Return an error if anything goes wrong
-   during this process.
- */
 esp_err_t print_what_saved(void) {
     nvs_handle_t my_handle;
     esp_err_t err;
@@ -251,25 +231,44 @@ esp_err_t print_what_saved(void) {
 
         free(run_time);
     }
-
-    // Close
     nvs_close(my_handle);
     return ESP_OK;
 }
 
+void rmt_send_task(void *pvParameters) {
+    configure_ir_tx();
+    ESP_ERROR_CHECK(rmt_enable(tx_channel));
+    rmt_transmit_config_t transmit_config = {
+            .loop_count = 0, // 不循环
+    };
+    rmt_copy_encoder_config_t raw_config = {};
+    rmt_encoder_handle_t raw_encoder = NULL;
+    ESP_ERROR_CHECK(rmt_new_copy_encoder(&raw_config, &raw_encoder));
+    ESP_LOGI(TAG, "start to send the average value");
+    ESP_LOGI(TAG, "===============================================================");
+    ESP_ERROR_CHECK(rmt_transmit(tx_channel, raw_encoder, total_avg, symbol_num * 4, &transmit_config));
+    for (int i = 0; i < symbol_num; ++i) {
+        printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
+        if (i + 1 % 20 == 0) {
+            printf("\r\n");
+        }
+    }
+    rmt_disable(tx_channel);
+    rmt_del_channel(tx_channel);
+    printf("\r\n");
+    ESP_LOGI(TAG, "send the average value done");
+    ESP_LOGI(TAG, "===============================================================");
+    esp_rom_delay_us(1000000);
+}
+
 void rmt_receive_task(void *pvParameters) {
     configure_ir_tx();
-    configure_ir_rx();
-    // enable channel
-    ESP_ERROR_CHECK(rmt_enable(tx_channel));
     ESP_ERROR_CHECK(rmt_enable(rx_channel));
-
     QueueHandle_t receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
     rmt_rx_event_callbacks_t cbs = {
             .on_recv_done = rmt_rx_done_callback,
     };
     ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(rx_channel, &cbs, receive_queue));
-
     // 以下时间要求均基于 NEC 协议
     rmt_receive_config_t receive_config = {
             .signal_range_min_ns = 1250,     // NEC 信号的最短持续时间为 560 µs，由于 1250 ns < 560 µs，有效信号不会视为噪声
@@ -279,29 +278,19 @@ void rmt_receive_task(void *pvParameters) {
 
     rmt_symbol_word_t raw_symbols[256]; // 为接收的符号分配内存
 
-//    rmt_transmit_config_t transmit_config = {
-//            .loop_count = 0, // 不循环
-//    };
-
     // 准备开始接收
     ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
     // 等待 RX 完成信号
     rmt_rx_done_event_data_t rx_data;
 
-    rmt_copy_encoder_config_t raw_config = {};
-    rmt_encoder_handle_t raw_encoder = NULL;
-    ESP_ERROR_CHECK(rmt_new_copy_encoder(&raw_config, &raw_encoder));
     int learning_times = 4;
     int current_learning_times = 0;
     rmt_symbol_word_t total_raw_symbols[learning_times][symbol_num];
-    uint8_t is_ready_send = 0;
     uint8_t is_inited = 0;
-//    ESP_LOGI(TAG, "Starting init params: symbol_length, please send first IR signal.");
-//    ESP_LOGI(TAG, "===============================================================");
     while (1) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         // 在这里编写你的RMT接收逻辑
-        if (!is_inited && !is_ready_send && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
+        if (!is_inited && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
             symbol_num = rx_data.num_symbols;
 //            ESP_LOGI(TAG, "Set symbol_length successful, symbol_length: %d", rx_data.num_symbols);
 //            ESP_LOGI(TAG, "Next, you need to send `same` IR signal 4 times");
@@ -309,7 +298,7 @@ void rmt_receive_task(void *pvParameters) {
             is_inited = 1;
             ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
         } else {
-            if (current_learning_times < learning_times && !is_ready_send &&
+            if (current_learning_times < learning_times &&
                 xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
                 if (symbol_num != rx_data.num_symbols) {
 //                    ESP_LOGI(TAG, "symbol_length not match, current symbol_length is %d, please send again",
@@ -333,11 +322,8 @@ void rmt_receive_task(void *pvParameters) {
                 current_learning_times++;
                 ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
             }
-            if (current_learning_times == learning_times && !is_ready_send) {
+            if (current_learning_times == learning_times) {
                 printf("\r\n");
-//                ESP_LOGI(TAG, "start to get the average value");
-
-                // 定义相近值的类别数组
                 total_avg = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * symbol_num);
 
                 uint32_t duration0s[symbol_num];
@@ -363,33 +349,13 @@ void rmt_receive_task(void *pvParameters) {
                     total_avg[i].level0 = 1;
                     total_avg[i].level1 = 0;
                 }
-
-//                ESP_LOGI(TAG, "average value: ");
                 for (int i = 0; i < symbol_num; ++i) {
                     printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
                     if (i + 1 % 20 == 0) {
                         printf("\r\n");
                     }
                 }
-
-                is_ready_send = 1;
             }
-
-//            if (is_ready_send) {
-//                ESP_LOGI(TAG, "start to send the average value");
-//                ESP_LOGI(TAG, "===============================================================");
-//                ESP_ERROR_CHECK(rmt_transmit(tx_channel, raw_encoder, total_avg, symbol_num * 4, &transmit_config));
-//                for (int i = 0; i < symbol_num; ++i) {
-//                    printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
-//                    if (i + 1 % 20 == 0) {
-//                        printf("\r\n");
-//                    }
-//                }
-//                printf("\r\n");
-//                ESP_LOGI(TAG, "send the average value done");
-//                ESP_LOGI(TAG, "===============================================================");
-//                esp_rom_delay_us(1000000);
-//            }
         }
     }
 
@@ -405,8 +371,8 @@ void app_main() {
 //    xTaskCreate(configure_http_server, "http_server", 4096, NULL, 5, NULL);
 //    xTaskCreatePinnedToCore(rmt_receive_task, "receive_ir_task", 4096, NULL, 4, NULL, 0);
 
-//    esp_err_t err = print_what_saved();
-//    if (err != ESP_OK) printf("Error (%s) reading data from NVS!\n", esp_err_to_name(err));
+    esp_err_t err = print_what_saved();
+    if (err != ESP_OK) printf("Error (%s) reading data from NVS!\n", esp_err_to_name(err));
 
 
 //    while (1) {
