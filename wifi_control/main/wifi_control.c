@@ -38,36 +38,26 @@ static TaskHandle_t rmt_receive_task_handle = NULL;
 static TaskHandle_t rmt_send_task_handle = NULL;
 
 
-esp_err_t save_ir_signal(void);
+esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length);
 
-esp_err_t get_ir_signal(void);
+esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length);
 
-void ir_send();
+void ir_send(rmt_symbol_word_t *symbols, size_t length);
 
-void rmt_receive_task(void *pvParameters);
+void ir_receiver_task(void *pvParameters);
 
 static void configure_led(void);
 
 static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data);
 
-static esp_err_t turn_on_handler(httpd_req_t *req);
+static esp_err_t save_ir_handler(httpd_req_t *req);
 
-static esp_err_t turn_off_handler(httpd_req_t *req);
+static esp_err_t send_ir_handler(httpd_req_t *req);
+
+static esp_err_t receive_ir_handler(httpd_req_t *req);
 
 static esp_err_t index_handler(httpd_req_t *req);
 
-
-httpd_uri_t turn_on = {
-        .uri       = "/turnOn",
-        .method    = HTTP_GET,
-        .handler   = turn_on_handler,
-};
-
-httpd_uri_t turn_off = {
-        .uri       = "/turnOff",
-        .method    = HTTP_GET,
-        .handler   = turn_off_handler,
-};
 
 httpd_uri_t index_html = {
         .uri       = "/",
@@ -75,9 +65,28 @@ httpd_uri_t index_html = {
         .handler   = index_handler,
 };
 
+httpd_uri_t save_ir_action = {
+        .uri       = "/ir/save",
+        .method    = HTTP_GET,
+        .handler   = save_ir_handler,
+};
+
+httpd_uri_t send_ir_action = {
+        .uri       = "/ir/send",
+        .method    = HTTP_GET,
+        .handler   = send_ir_handler,
+};
+
+httpd_uri_t receive_ir_action = {
+        .uri       = "/ir/receive",
+        .method    = HTTP_GET,
+        .handler   = receive_ir_handler,
+};
+
 static const httpd_uri_t *handlers[] = {
-        &turn_on,
-        &turn_off,
+        &save_ir_action,
+        &send_ir_action,
+        &receive_ir_action,
         &index_html
 };
 
@@ -98,12 +107,12 @@ void app_main() {
     initialize_nvs();
     configure_wifi();
     configure_http_server();
-    xTaskCreate(rmt_receive_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle);
+//    xTaskCreate(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle);
 //    xTaskCreate(configure_http_server, "http_server", 4096, NULL, 5, NULL);
 //    xTaskCreatePinnedToCore(rmt_receive_task, "receive_ir_task", 4096, NULL, 4, NULL, 0);
 
-    esp_err_t err = get_ir_signal();
-    if (err != ESP_OK) printf("Error (%s) reading data from NVS!\n", esp_err_to_name(err));
+//    esp_err_t err = get_ir_signal(NULL, &symbol_num);
+//    if (err != ESP_OK) printf("Error (%s) reading data from NVS!\n", esp_err_to_name(err));
 
 
 //    while (1) {
@@ -184,6 +193,29 @@ void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
+void configure_http_server() {
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    httpd_handle_t server;
+    if (httpd_start(&server, &config) == ESP_OK) {
+        for (int i = 0; handlers[i]; i++) {
+            httpd_register_uri_handler(server, handlers[i]);
+        }
+    }
+}
+
+void configure_led(void) {
+    ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
+    gpio_reset_pin(GPIO_NUM_16);
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
+
+    gpio_reset_pin(WIFI_STATUS_GPIO_NUM);
+    gpio_set_direction(WIFI_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
+
+    gpio_reset_pin(REQUEST_GPIO_NUM);
+    gpio_set_direction(REQUEST_GPIO_NUM, GPIO_MODE_OUTPUT);
+}
+
 void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
@@ -199,17 +231,7 @@ void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, voi
     }
 }
 
-void configure_http_server() {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    httpd_handle_t server;
-    if (httpd_start(&server, &config) == ESP_OK) {
-        for (int i = 0; handlers[i]; i++) {
-            httpd_register_uri_handler(server, handlers[i]);
-        }
-    }
-}
-
-void ir_send() {
+void ir_send(rmt_symbol_word_t *symbols, size_t length) {
     configure_ir_tx();
     ESP_ERROR_CHECK(rmt_enable(tx_channel));
     rmt_transmit_config_t transmit_config = {
@@ -220,8 +242,14 @@ void ir_send() {
     ESP_ERROR_CHECK(rmt_new_copy_encoder(&raw_config, &raw_encoder));
     ESP_LOGI(TAG, "start to send the average value");
     ESP_LOGI(TAG, "===============================================================");
-    ESP_LOGI(TAG, "symbol_num: %d", symbol_num);
-    ESP_ERROR_CHECK(rmt_transmit(tx_channel, raw_encoder, total_avg, symbol_num * 4, &transmit_config));
+    ESP_LOGI(TAG, "send length: %d", length);
+    ESP_ERROR_CHECK(
+            rmt_transmit(tx_channel,
+                         raw_encoder,
+                         symbols,
+                         length * sizeof(rmt_symbol_word_t),
+                         &transmit_config)
+    );
     rmt_tx_wait_all_done(tx_channel, portMAX_DELAY);
     rmt_disable(tx_channel);
     rmt_del_channel(tx_channel);
@@ -229,7 +257,7 @@ void ir_send() {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
-void rmt_receive_task(void *pvParameters) {
+void ir_receiver_task(void *pvParameters) {
     configure_ir_rx();
     ESP_ERROR_CHECK(rmt_enable(rx_channel));
     QueueHandle_t receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
@@ -310,7 +338,9 @@ void rmt_receive_task(void *pvParameters) {
                     total_avg[i].duration1 = duration1s[i];
                     total_avg[i].level0 = 1;
                     total_avg[i].level1 = 0;
+                    printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
                 }
+                printf("\r\n");
                 ESP_LOGI(TAG, "learning done");
                 vTaskDelete(NULL);
             }
@@ -318,37 +348,36 @@ void rmt_receive_task(void *pvParameters) {
     }
 }
 
-esp_err_t save_ir_signal(void) {
+esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
     nvs_handle_t my_handle;
     esp_err_t err;
+
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
-    // Read the size of memory space required for blob
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
     err = nvs_get_blob(my_handle, "run_time", NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
 
-    uint32_t ir_durations[280] = {0};
-    for (int i = 0; i < 140; ++i) {
-        printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
-        ir_durations[i * 2] = total_avg[i].duration0;
-        ir_durations[i * 2 + 1] = total_avg[i].duration1;
+    uint32_t ir_durations[length * 2 + 1];
+    ir_durations[0] = length;
+    for (int i = 1; i < length + 1; ++i) {
+        ir_durations[i * 2 - 1] = symbols[i - 1].duration0;
+        ir_durations[i * 2] = symbols[i - 1].duration1;
+        printf("%d,%d ", symbols[i - 1].duration0, symbols[i - 1].duration1);
     }
+    printf("\r\n");
 
-    err = nvs_set_blob(my_handle, "run_time", ir_durations, 280 * sizeof(uint32_t));
-
+    err = nvs_set_blob(my_handle, "run_time", ir_durations, (length * 2 + 1) * sizeof(uint32_t));
     if (err != ESP_OK) return err;
 
-    // Commit
     err = nvs_commit(my_handle);
     if (err != ESP_OK) return err;
 
-    // Close
     nvs_close(my_handle);
     return ESP_OK;
 }
 
-esp_err_t get_ir_signal(void) {
+esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length) {
     nvs_handle_t my_handle;
     esp_err_t err;
     // Open
@@ -361,7 +390,7 @@ esp_err_t get_ir_signal(void) {
     err = nvs_get_blob(my_handle, "run_time", NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size == 0) {
-        printf("Nothing saved yet!\n");
+        printf("Nothing saved yet!\r\n");
     } else {
         uint32_t *ir_symbols = (uint32_t *) malloc(required_size);
         err = nvs_get_blob(my_handle, "run_time", ir_symbols, &required_size);
@@ -369,38 +398,24 @@ esp_err_t get_ir_signal(void) {
             free(ir_symbols);
             return err;
         }
-        for (int j = 0; j < 140; ++j) {
-            printf("%lu,%lu ", ir_symbols[j * 2], ir_symbols[j * 2 + 1]);
-            if (j + 1 % 20 == 0) {
+        ESP_LOGI(TAG, "ir_symbols: %lu", ir_symbols[0]);
+        *length = ir_symbols[0];
+        *symbols = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * ir_symbols[0]);
+        for (int i = 1; i < ir_symbols[0] + 1; ++i) {
+            printf("%lu,%lu ", ir_symbols[i * 2 - 1], ir_symbols[i * 2]);
+            if (i + 1 % 20 == 0) {
                 printf("\r\n");
             }
+            (*symbols)[i - 1].duration0 = ir_symbols[i * 2 - 1];
+            (*symbols)[i - 1].duration1 = ir_symbols[i * 2];
+            (*symbols)[i - 1].level0 = 1;
+            (*symbols)[i - 1].level1 = 0;
         }
-        total_avg = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * 140);
-        for (int i = 0; i < 140; ++i) {
-            total_avg[i].duration0 = ir_symbols[i * 2];
-            total_avg[i].duration1 = ir_symbols[i * 2 + 1];
-            total_avg[i].level0 = 1;
-            total_avg[i].level1 = 0;
-        }
-        ir_send();
-        total_avg = NULL;
+        printf("\r\n");
         free(ir_symbols);
     }
     nvs_close(my_handle);
     return ESP_OK;
-}
-
-static void configure_led(void) {
-    ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
-    gpio_reset_pin(GPIO_NUM_16);
-    /* Set the GPIO as a push/pull output */
-    gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
-
-    gpio_reset_pin(WIFI_STATUS_GPIO_NUM);
-    gpio_set_direction(WIFI_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
-
-    gpio_reset_pin(REQUEST_GPIO_NUM);
-    gpio_set_direction(REQUEST_GPIO_NUM, GPIO_MODE_OUTPUT);
 }
 
 static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
@@ -417,34 +432,42 @@ static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done
     return high_task_wakeup == pdTRUE;
 }
 
-static esp_err_t turn_on_handler(httpd_req_t *req) {
-    if (symbol_num == 140) {
-        save_ir_signal();
+static esp_err_t save_ir_handler(httpd_req_t *req) {
+    if (total_avg != NULL) {
+        save_ir_signal(total_avg, symbol_num);
     }
     gpio_set_level(REQUEST_GPIO_NUM, 1);
-    httpd_resp_send(req, "LED turned on", strlen("LED turned on"));
+    char *res_message = "Send IR Data";
+    httpd_resp_send(req, res_message, strlen(res_message));
     return ESP_OK;
 }
 
-static esp_err_t turn_off_handler(httpd_req_t *req) {
-
+static esp_err_t send_ir_handler(httpd_req_t *req) {
     gpio_set_level(REQUEST_GPIO_NUM, 0);
-
-    get_ir_signal();
-    if (total_avg == NULL) {
-        httpd_resp_send(req, "LED turned off, the average value is NULL",
-                        strlen("LED turned off, the average value is NULL"));
+    rmt_symbol_word_t *symbols;
+    size_t length = 0;
+    get_ir_signal(&symbols, &length);
+    if (symbols == NULL) {
+        char *res_message = "Send IR Data";
+        httpd_resp_send(req, res_message, strlen(res_message));
         return ESP_OK;
     }
-//    xTaskCreate(rmt_send_task, "rmt_send_task", 8192, NULL, 5, NULL);
-    ir_send();
+    ir_send(symbols, length);
+    free(symbols);
     httpd_resp_send(req, "Send success", strlen("Send success"));
+    return ESP_OK;
+}
+
+static esp_err_t receive_ir_handler(httpd_req_t *req) {
+    xTaskCreate(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle);
+    char *res_message = "Receive IR Data";
+    httpd_resp_send(req, res_message, strlen(res_message));
     return ESP_OK;
 }
 
 static esp_err_t index_handler(httpd_req_t *req) {
     // index html
-    char *indexBuffer = "<html><head><title>ESP32 LED</title>"
+    char *indexBuffer = "<html><head><title>ESP32 IR Remote</title>"
                         "<script>"
                         "function sendRequest(url) {"
                         "  var xhr = new XMLHttpRequest();"
@@ -453,12 +476,13 @@ static esp_err_t index_handler(httpd_req_t *req) {
                         "}"
                         "</script>"
                         "</head><body>"
-                        "<h1>ESP32 LED</h1>"
-                        "<button onclick=\"sendRequest('/turnOff');\">Turn Off</button>"
+                        "<h1>ESP32 IR Remote</h1>"
+                        "<button onclick=\"sendRequest('/ir/send');\">IR Send</button>"
                         "<br>"
-                        "<button onclick=\"sendRequest('/turnOn');\">Turn On</button>"
+                        "<button onclick=\"sendRequest('/ir/save');\">IR Save</button>"
+                        "<br>"
+                        "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
                         "</body></html>";
-    httpd_resp_send(req, indexBuffer,
-                    strlen(indexBuffer));
+    httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
 }
