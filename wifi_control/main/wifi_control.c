@@ -14,6 +14,24 @@
 #include "nvs_flash.h"
 #include "esp_http_server.h"
 
+/*
+ * init statuses: receive status is no, receive not finished
+ * receive status -> yes && receive not finish, block send
+ * trigger receive mode ->
+ *      case1(receive status is no) set receive status to yes && set receive not finished && create receive task
+ *      case2(receive status is yes) do nothing
+ * receive task finished -> set receive status -> no && set receive finished
+ * trigger cancel receive ->
+ *      case1(receive status is no) do nothing
+ *      case2(receive status is yes) set receive status to no && set receive not finished && delete receive task
+ * trigger send ->
+ *      case1(receive status is no) send
+ *      case2(receive status is yes) do not send
+ * trigger save ->
+ *      case1(receive status is no && receive finished) save
+ *      case2(receive status is yes) do nothing
+ *
+ */
 #define EXAMPLE_IR_RESOLUTION_HZ     (1*1000*1000) // 1MHz resolution, 1 tick = 1us
 #define EXAMPLE_IR_TX_GPIO_NUM       18
 #define EXAMPLE_IR_RX_GPIO_NUM       22
