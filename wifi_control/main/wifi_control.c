@@ -21,6 +21,7 @@
 #define DEFAULT_PWD "zxk123456"
 #define WIFI_STATUS_GPIO_NUM 4
 #define REQUEST_GPIO_NUM 2
+#define TMT_STATUS_GPIO_NUM 16
 #define STORAGE_NAMESPACE "storage"
 
 static const char *TAG = "WIFI_CONTROL";
@@ -32,9 +33,9 @@ static uint8_t led_level = 0x0;
 static size_t symbol_num = 300;
 static rmt_symbol_word_t *total_avg;
 
-static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length);
+static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const char *key);
 
-static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length);
+static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, const char *key);
 
 static void ir_send(rmt_symbol_word_t *symbols, size_t length);
 
@@ -63,6 +64,34 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
 static void initialize_nvs();
 
 static void configure_http_server();
+
+static httpd_uri_t index_html = {
+        .uri       = "/",
+        .method    = HTTP_GET,
+        .handler   = index_handler,
+};
+static httpd_uri_t save_ir_action = {
+        .uri       = "/ir/save",
+        .method    = HTTP_GET,
+        .handler   = save_ir_handler,
+};
+
+static httpd_uri_t send_ir_action = {
+        .uri       = "/ir/send",
+        .method    = HTTP_GET,
+        .handler   = send_ir_handler,
+};
+static httpd_uri_t receive_ir_action = {
+        .uri       = "/ir/receive",
+        .method    = HTTP_GET,
+        .handler   = receive_ir_handler,
+};
+static const httpd_uri_t *handlers[] = {
+        &save_ir_action,
+        &send_ir_action,
+        &receive_ir_action,
+        &index_html
+};
 
 void app_main() {
     configure_led();
@@ -143,34 +172,6 @@ static void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-static httpd_uri_t index_html = {
-        .uri       = "/",
-        .method    = HTTP_GET,
-        .handler   = index_handler,
-};
-static httpd_uri_t save_ir_action = {
-        .uri       = "/ir/save",
-        .method    = HTTP_GET,
-        .handler   = save_ir_handler,
-};
-
-static httpd_uri_t send_ir_action = {
-        .uri       = "/ir/send",
-        .method    = HTTP_GET,
-        .handler   = send_ir_handler,
-};
-static httpd_uri_t receive_ir_action = {
-        .uri       = "/ir/receive",
-        .method    = HTTP_GET,
-        .handler   = receive_ir_handler,
-};
-static const httpd_uri_t *handlers[] = {
-        &save_ir_action,
-        &send_ir_action,
-        &receive_ir_action,
-        &index_html
-};
-
 static void configure_http_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server;
@@ -183,9 +184,9 @@ static void configure_http_server() {
 
 static void configure_led(void) {
     ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
-    gpio_reset_pin(GPIO_NUM_16);
+    gpio_reset_pin(TMT_STATUS_GPIO_NUM);
     /* Set the GPIO as a push/pull output */
-    gpio_set_direction(GPIO_NUM_16, GPIO_MODE_OUTPUT);
+    gpio_set_direction(TMT_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
 
     gpio_reset_pin(WIFI_STATUS_GPIO_NUM);
     gpio_set_direction(WIFI_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
@@ -326,14 +327,14 @@ static void ir_receiver_task(void *pvParameters) {
     }
 }
 
-static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
+static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const char *key) {
     nvs_handle_t my_handle;
     esp_err_t err;
 
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
-    err = nvs_get_blob(my_handle, "run_time", NULL, &required_size);
+    err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
 
     uint32_t ir_durations[length * 2 + 1];
@@ -345,7 +346,7 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
     }
     printf("\r\n");
 
-    err = nvs_set_blob(my_handle, "run_time", ir_durations, (length * 2 + 1) * sizeof(uint32_t));
+    err = nvs_set_blob(my_handle, key, ir_durations, (length * 2 + 1) * sizeof(uint32_t));
     if (err != ESP_OK) return err;
 
     err = nvs_commit(my_handle);
@@ -355,7 +356,7 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
     return ESP_OK;
 }
 
-static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length) {
+static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, const char *key) {
     nvs_handle_t my_handle;
     esp_err_t err;
     // Open
@@ -365,13 +366,13 @@ static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length) {
     // Read run time blob
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
     // obtain required memory space to store blob being read from NVS
-    err = nvs_get_blob(my_handle, "run_time", NULL, &required_size);
+    err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size == 0) {
         printf("Nothing saved yet!\r\n");
     } else {
         uint32_t *ir_symbols = (uint32_t *) malloc(required_size);
-        err = nvs_get_blob(my_handle, "run_time", ir_symbols, &required_size);
+        err = nvs_get_blob(my_handle, key, ir_symbols, &required_size);
         if (err != ESP_OK) {
             free(ir_symbols);
             return err;
@@ -401,7 +402,7 @@ static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done
     BaseType_t high_task_wakeup = pdFALSE;
     //set led on
     led_level = ~led_level;
-    gpio_set_level(GPIO_NUM_16, led_level);
+    gpio_set_level(TMT_STATUS_GPIO_NUM, led_level);
 
     QueueHandle_t receive_queue = (QueueHandle_t) user_data;
     // 将接收到的 RMT 符号发送到解析任务的消息队列中
@@ -412,7 +413,7 @@ static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done
 
 static esp_err_t save_ir_handler(httpd_req_t *req) {
     if (total_avg != NULL) {
-        save_ir_signal(total_avg, symbol_num);
+        save_ir_signal(total_avg, symbol_num, "run_time");
     }
     gpio_set_level(REQUEST_GPIO_NUM, 1);
     char *res_message = "Send IR Data";
@@ -424,7 +425,7 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
     gpio_set_level(REQUEST_GPIO_NUM, 0);
     rmt_symbol_word_t *symbols;
     size_t length = 0;
-    get_ir_signal(&symbols, &length);
+    get_ir_signal(&symbols, &length, "run_time");
     if (symbols == NULL) {
         char *res_message = "Send IR Data";
         httpd_resp_send(req, res_message, strlen(res_message));
