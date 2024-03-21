@@ -17,26 +17,20 @@
 #define EXAMPLE_IR_RESOLUTION_HZ     (1*1000*1000) // 1MHz resolution, 1 tick = 1us
 #define EXAMPLE_IR_TX_GPIO_NUM       18
 #define EXAMPLE_IR_RX_GPIO_NUM       22
-static const char *TAG = "WIFI_CONTROL";
-static uint8_t led_level = 0x0;
-static rmt_channel_handle_t tx_channel = NULL;
-static rmt_channel_handle_t rx_channel = NULL;
-
 #define DEFAULT_SSID "GL-MT3000-25f"
 #define DEFAULT_PWD "zxk123456"
 #define WIFI_STATUS_GPIO_NUM 4
-
 #define REQUEST_GPIO_NUM 2
-
 #define STORAGE_NAMESPACE "storage"
 
-rmt_symbol_word_t *total_avg;
-size_t symbol_num = 300;
-
-//Task Handler
+static const char *TAG = "WIFI_CONTROL";
+static rmt_channel_handle_t tx_channel = NULL;
+static rmt_channel_handle_t rx_channel = NULL;
 static TaskHandle_t rmt_receive_task_handle = NULL;
 static TaskHandle_t rmt_send_task_handle = NULL;
-
+static uint8_t led_level = 0x0;
+size_t symbol_num = 300;
+rmt_symbol_word_t *total_avg;
 
 esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length);
 
@@ -58,38 +52,6 @@ static esp_err_t receive_ir_handler(httpd_req_t *req);
 
 static esp_err_t index_handler(httpd_req_t *req);
 
-
-httpd_uri_t index_html = {
-        .uri       = "/",
-        .method    = HTTP_GET,
-        .handler   = index_handler,
-};
-
-httpd_uri_t save_ir_action = {
-        .uri       = "/ir/save",
-        .method    = HTTP_GET,
-        .handler   = save_ir_handler,
-};
-
-httpd_uri_t send_ir_action = {
-        .uri       = "/ir/send",
-        .method    = HTTP_GET,
-        .handler   = send_ir_handler,
-};
-
-httpd_uri_t receive_ir_action = {
-        .uri       = "/ir/receive",
-        .method    = HTTP_GET,
-        .handler   = receive_ir_handler,
-};
-
-static const httpd_uri_t *handlers[] = {
-        &save_ir_action,
-        &send_ir_action,
-        &receive_ir_action,
-        &index_html
-};
-
 void configure_ir_tx();
 
 void configure_ir_rx();
@@ -107,18 +69,6 @@ void app_main() {
     initialize_nvs();
     configure_wifi();
     configure_http_server();
-//    xTaskCreate(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle);
-//    xTaskCreate(configure_http_server, "http_server", 4096, NULL, 5, NULL);
-//    xTaskCreatePinnedToCore(rmt_receive_task, "receive_ir_task", 4096, NULL, 4, NULL, 0);
-
-//    esp_err_t err = get_ir_signal(NULL, &symbol_num);
-//    if (err != ESP_OK) printf("Error (%s) reading data from NVS!\n", esp_err_to_name(err));
-
-
-//    while (1) {
-////        sleep(5);
-//        vTaskDelay(10000 / portTICK_PERIOD_MS);
-//    }
 }
 
 void initialize_nvs() {
@@ -192,7 +142,34 @@ void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 }
+static httpd_uri_t index_html = {
+        .uri       = "/",
+        .method    = HTTP_GET,
+        .handler   = index_handler,
+};
 
+static httpd_uri_t save_ir_action = {
+        .uri       = "/ir/save",
+        .method    = HTTP_GET,
+        .handler   = save_ir_handler,
+};
+
+static httpd_uri_t send_ir_action = {
+        .uri       = "/ir/send",
+        .method    = HTTP_GET,
+        .handler   = send_ir_handler,
+};
+static httpd_uri_t receive_ir_action = {
+        .uri       = "/ir/receive",
+        .method    = HTTP_GET,
+        .handler   = receive_ir_handler,
+};
+static const httpd_uri_t *handlers[] = {
+        &save_ir_action,
+        &send_ir_action,
+        &receive_ir_action,
+        &index_html
+};
 void configure_http_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server;
@@ -459,7 +436,7 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
 }
 
 static esp_err_t receive_ir_handler(httpd_req_t *req) {
-    xTaskCreate(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle);
+    xTaskCreatePinnedToCore(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle, 1);
     char *res_message = "Receive IR Data";
     httpd_resp_send(req, res_message, strlen(res_message));
     return ESP_OK;
