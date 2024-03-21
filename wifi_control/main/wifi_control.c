@@ -356,6 +356,102 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
     return ESP_OK;
 }
 
+// 定义一个简单的结构体
+typedef struct {
+    int id;
+    char *name;
+} IRItem;
+
+// 将结构体数组序列化为字节序列
+static void serialize_struct_array(IRItem *array, size_t length, uint8_t **data, size_t *size) {
+    *size = sizeof(IRItem) * length;
+    *data = (uint8_t *) malloc(*size);
+    memcpy(*data, array, *size);
+}
+
+// 将字节序列反序列化为结构体数组
+static void deserialize_struct_array(uint8_t *data, size_t size, IRItem **array, size_t *length) {
+    *length = size / sizeof(IRItem);
+    *array = (IRItem *) malloc(size);
+    memcpy(*array, data, size);
+}
+
+// 保存结构体数组到NVS
+static esp_err_t save_struct_array_to_nvs(const char *key, IRItem *array, size_t length, nvs_handle_t my_handle) {
+    uint8_t *data;
+    size_t size;
+    serialize_struct_array(array, length, &data, &size);
+    esp_err_t err = nvs_set_blob(my_handle, key, data, size);
+    free(data);
+    return err;
+}
+
+// 从NVS中加载结构体数组
+esp_err_t load_struct_array_from_nvs(const char *key, IRItem **array, size_t *length, nvs_handle_t my_handle) {
+    size_t size;
+    uint8_t *data;
+    esp_err_t err = nvs_get_blob(my_handle, key, NULL, &size);
+    if (err != ESP_OK) return err;
+    data = (uint8_t *) malloc(size);
+    err = nvs_get_blob(my_handle, key, data, &size);
+    if (err != ESP_OK) {
+        free(data);
+        return err;
+    }
+    deserialize_struct_array(data, size, array, length);
+
+    free(data);
+    return ESP_OK;
+}
+
+static esp_err_t save_ir_index_handler(IRItem ir_item) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return err;
+    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    err = nvs_get_blob(my_handle, "ir_index_table", NULL, &required_size);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+    if (required_size != 0) {
+        IRItem *items;
+        size_t length;
+        err = load_struct_array_from_nvs("ir_index_table", &items, &length, my_handle);
+        if (err != ESP_OK) {
+            free(items);
+            return err;
+        }
+
+        for (int i = 0; i < length; ++i) {
+            printf("%s ", items[i].name);
+        }
+        printf("\r\n");
+        IRItem *new_items = (IRItem *) malloc(sizeof(IRItem) * (length + 1));
+        for (int i = 0; i < length; ++i) {
+            new_items[i] = items[i];
+        }
+        new_items[length] = ir_item;
+        free(items);
+        err = save_struct_array_to_nvs("ir_index_table", new_items, length + 1, my_handle);
+        if (err != ESP_OK) {
+            free(new_items);
+            return err;
+        }
+        free(new_items);
+    } else {
+        err = save_struct_array_to_nvs("ir_index_table", &ir_item, 1, my_handle);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) return err;
+
+    nvs_close(my_handle);
+    return ESP_OK;
+}
+
 static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, const char *key) {
     nvs_handle_t my_handle;
     esp_err_t err;
