@@ -29,16 +29,16 @@ static rmt_channel_handle_t rx_channel = NULL;
 static TaskHandle_t rmt_receive_task_handle = NULL;
 static TaskHandle_t rmt_send_task_handle = NULL;
 static uint8_t led_level = 0x0;
-size_t symbol_num = 300;
-rmt_symbol_word_t *total_avg;
+static size_t symbol_num = 300;
+static rmt_symbol_word_t *total_avg;
 
-esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length);
+static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length);
 
-esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length);
+static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length);
 
-void ir_send(rmt_symbol_word_t *symbols, size_t length);
+static void ir_send(rmt_symbol_word_t *symbols, size_t length);
 
-void ir_receiver_task(void *pvParameters);
+static void ir_receiver_task(void *pvParameters);
 
 static void configure_led(void);
 
@@ -52,17 +52,17 @@ static esp_err_t receive_ir_handler(httpd_req_t *req);
 
 static esp_err_t index_handler(httpd_req_t *req);
 
-void configure_ir_tx();
+static void configure_ir_tx();
 
-void configure_ir_rx();
+static void configure_ir_rx();
 
-void configure_wifi();
+static void configure_wifi();
 
-void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
-void initialize_nvs();
+static void initialize_nvs();
 
-void configure_http_server();
+static void configure_http_server();
 
 void app_main() {
     configure_led();
@@ -71,7 +71,7 @@ void app_main() {
     configure_http_server();
 }
 
-void initialize_nvs() {
+static void initialize_nvs() {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -80,7 +80,7 @@ void initialize_nvs() {
     ESP_ERROR_CHECK(ret);
 }
 
-void configure_ir_rx() {
+static void configure_ir_rx() {
     rmt_rx_channel_config_t rx_chan_config = {
             .clk_src = RMT_CLK_SRC_DEFAULT,   // 选择时钟源
             .resolution_hz = 1 * 1000 * 1000, // 1 MHz 滴答分辨率，即 1 滴答 = 1 µs
@@ -92,7 +92,7 @@ void configure_ir_rx() {
     ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_chan_config, &rx_channel));
 }
 
-void configure_ir_tx() {
+static void configure_ir_tx() {
     rmt_tx_channel_config_t tx_chan_config = {
             .clk_src = RMT_CLK_SRC_DEFAULT,   // 选择时钟源
             .gpio_num = EXAMPLE_IR_TX_GPIO_NUM,                    // GPIO 编号
@@ -113,7 +113,7 @@ void configure_ir_tx() {
     ESP_ERROR_CHECK(rmt_apply_carrier(tx_channel, &tx_carrier_cfg));
 }
 
-void configure_wifi(void) {
+static void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -142,12 +142,12 @@ void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 }
+
 static httpd_uri_t index_html = {
         .uri       = "/",
         .method    = HTTP_GET,
         .handler   = index_handler,
 };
-
 static httpd_uri_t save_ir_action = {
         .uri       = "/ir/save",
         .method    = HTTP_GET,
@@ -170,7 +170,8 @@ static const httpd_uri_t *handlers[] = {
         &receive_ir_action,
         &index_html
 };
-void configure_http_server() {
+
+static void configure_http_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server;
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -180,7 +181,7 @@ void configure_http_server() {
     }
 }
 
-void configure_led(void) {
+static void configure_led(void) {
     ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
     gpio_reset_pin(GPIO_NUM_16);
     /* Set the GPIO as a push/pull output */
@@ -193,7 +194,7 @@ void configure_led(void) {
     gpio_set_direction(REQUEST_GPIO_NUM, GPIO_MODE_OUTPUT);
 }
 
-void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -208,7 +209,7 @@ void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, voi
     }
 }
 
-void ir_send(rmt_symbol_word_t *symbols, size_t length) {
+static void ir_send(rmt_symbol_word_t *symbols, size_t length) {
     configure_ir_tx();
     ESP_ERROR_CHECK(rmt_enable(tx_channel));
     rmt_transmit_config_t transmit_config = {
@@ -234,7 +235,7 @@ void ir_send(rmt_symbol_word_t *symbols, size_t length) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
-void ir_receiver_task(void *pvParameters) {
+static void ir_receiver_task(void *pvParameters) {
     configure_ir_rx();
     ESP_ERROR_CHECK(rmt_enable(rx_channel));
     QueueHandle_t receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
@@ -325,7 +326,7 @@ void ir_receiver_task(void *pvParameters) {
     }
 }
 
-esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
+static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
     nvs_handle_t my_handle;
     esp_err_t err;
 
@@ -354,7 +355,7 @@ esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length) {
     return ESP_OK;
 }
 
-esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length) {
+static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length) {
     nvs_handle_t my_handle;
     esp_err_t err;
     // Open
