@@ -41,6 +41,11 @@
 #define REQUEST_GPIO_NUM 2
 #define TMT_STATUS_GPIO_NUM 16
 #define STORAGE_NAMESPACE "storage"
+#define RECEIVE_MODE 1
+#define SEND_MODE 0
+#define OTHER_MODE 2
+#define FINISHED 1
+#define NOT_FINISHED 0
 
 static const char *TAG = "WIFI_CONTROL";
 static rmt_channel_handle_t tx_channel = NULL;
@@ -50,6 +55,8 @@ static TaskHandle_t rmt_send_task_handle = NULL;
 static uint8_t led_level = 0x0;
 static size_t symbol_num = 300;
 static rmt_symbol_word_t *total_avg;
+static size_t ir_mode = 0; // 0: send, 1: receive, 2: other
+static size_t receive_status = 0; // 0: start/not finished, 1: finished
 
 static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const char *key);
 
@@ -68,6 +75,8 @@ static esp_err_t save_ir_handler(httpd_req_t *req);
 static esp_err_t send_ir_handler(httpd_req_t *req);
 
 static esp_err_t receive_ir_handler(httpd_req_t *req);
+
+static esp_err_t cancel_receive_ir_handler(httpd_req_t *req);
 
 static esp_err_t index_handler(httpd_req_t *req);
 
@@ -104,10 +113,16 @@ static httpd_uri_t receive_ir_action = {
         .method    = HTTP_GET,
         .handler   = receive_ir_handler,
 };
+static httpd_uri_t cancel_receive_ir_action = {
+        .uri       = "/ir/receive/cancel",
+        .method    = HTTP_GET,
+        .handler   = cancel_receive_ir_handler,
+};
 static const httpd_uri_t *handlers[] = {
         &save_ir_action,
         &send_ir_action,
         &receive_ir_action,
+        &cancel_receive_ir_action,
         &index_html
 };
 
@@ -283,7 +298,6 @@ static void ir_receiver_task(void *pvParameters) {
     uint8_t is_inited = 0;
     while (1) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
-        // 在这里编写你的RMT接收逻辑
         if (!is_inited && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
             ESP_LOGI(TAG, "init symbol_length: %d", rx_data.num_symbols);
             symbol_num = rx_data.num_symbols;
@@ -339,6 +353,12 @@ static void ir_receiver_task(void *pvParameters) {
                 }
                 printf("\r\n");
                 ESP_LOGI(TAG, "learning done");
+                receive_status = FINISHED;
+                if (rx_channel != NULL) {
+                    rmt_disable(rx_channel);
+                    rmt_del_channel(rx_channel);
+                    rx_channel = NULL;
+                }
                 vTaskDelete(NULL);
             }
         }
@@ -525,20 +545,56 @@ static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done
     return high_task_wakeup == pdTRUE;
 }
 
+
 static esp_err_t save_ir_handler(httpd_req_t *req) {
-    if (total_avg != NULL) {
-        save_ir_signal(total_avg, symbol_num, "run_time");
+    if (ir_mode != RECEIVE_MODE && receive_status == FINISHED) {
+        gpio_set_level(REQUEST_GPIO_NUM, 1);
+        char *buf;
+        size_t buf_len;
+        buf_len = httpd_req_get_url_query_len(req) + 1;
+        if (buf_len > 1) {
+            buf = (char *) malloc(buf_len);
+            if (!buf) {
+                httpd_resp_send_500(req);
+                return ESP_FAIL;
+            }
+            if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+                char param[32];
+                if (httpd_query_key_value(buf, "name", param, sizeof(param)) == ESP_OK) {
+                    save_ir_index_handler((IRItem) {1, param});
+                    save_ir_signal(total_avg, symbol_num, param);
+                    httpd_resp_send(req, param, strlen(param));
+                } else {
+                    httpd_resp_send_404(req);
+                }
+            } else {
+                httpd_resp_send_404(req);
+            }
+            free(buf);
+        } else {
+            httpd_resp_send_404(req);
+        }
+        return ESP_OK;
     }
-    gpio_set_level(REQUEST_GPIO_NUM, 1);
-    char *res_message = "Send IR Data";
+
+    char *res_message = "Receive not finished or not in Receive IR Data Mode";
     httpd_resp_send(req, res_message, strlen(res_message));
     return ESP_OK;
 }
 
 static esp_err_t send_ir_handler(httpd_req_t *req) {
+    if (ir_mode == RECEIVE_MODE) {
+        char *res_message = "Receive IR Data";
+        httpd_resp_send(req, res_message, strlen(res_message));
+        return ESP_OK;
+    }
+    ir_mode = SEND_MODE;
+
     gpio_set_level(REQUEST_GPIO_NUM, 0);
     rmt_symbol_word_t *symbols;
     size_t length = 0;
+
+
     get_ir_signal(&symbols, &length, "run_time");
     if (symbols == NULL) {
         char *res_message = "Send IR Data";
@@ -548,12 +604,39 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
     ir_send(symbols, length);
     free(symbols);
     httpd_resp_send(req, "Send success", strlen("Send success"));
+    ir_mode = OTHER_MODE;
     return ESP_OK;
 }
 
 static esp_err_t receive_ir_handler(httpd_req_t *req) {
+    if (ir_mode == RECEIVE_MODE) {
+        char *res_message = "Receive IR Data";
+        httpd_resp_send(req, res_message, strlen(res_message));
+        return ESP_OK;
+    }
+    ir_mode = RECEIVE_MODE;
+    receive_status = NOT_FINISHED;
     xTaskCreatePinnedToCore(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle, 1);
     char *res_message = "Receive IR Data";
+    httpd_resp_send(req, res_message, strlen(res_message));
+    return ESP_OK;
+}
+
+static esp_err_t cancel_receive_ir_handler(httpd_req_t *req) {
+    char *res_message = "Not in Receive IR Data Mode";
+    if (ir_mode == RECEIVE_MODE) {
+        receive_status = NOT_FINISHED;
+        ir_mode = OTHER_MODE;
+        if (rx_channel != NULL) {
+            rmt_disable(rx_channel);
+            rmt_del_channel(rx_channel);
+            rx_channel = NULL;
+        }
+        ESP_LOGI(TAG, "Cancel Receive IR Data");
+        vTaskDelete(rmt_receive_task_handle);
+
+        res_message = "Cancel Receive IR Data";
+    }
     httpd_resp_send(req, res_message, strlen(res_message));
     return ESP_OK;
 }
@@ -575,6 +658,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
                         "<button onclick=\"sendRequest('/ir/save');\">IR Save</button>"
                         "<br>"
                         "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
+                        "<br>"
+                        "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
                         "</body></html>";
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
