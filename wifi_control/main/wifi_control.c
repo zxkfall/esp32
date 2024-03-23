@@ -605,15 +605,46 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
     rmt_symbol_word_t *symbols;
     size_t length = 0;
 
-
-    get_ir_signal(&symbols, &length, "ioi");
-    if (symbols == NULL) {
-        char *res_message = "Send IR Data";
-        httpd_resp_send(req, res_message, strlen(res_message));
-        return ESP_OK;
+    char *buf;
+    size_t buf_len;
+    buf_len = httpd_req_get_url_query_len(req) + 1;
+    ESP_LOGI(TAG, "%d", buf_len);
+    if (buf_len > 1) {
+        buf = (char *) malloc(buf_len);
+        if (!buf) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            char param[20];
+            if (httpd_query_key_value(buf, "name", param, sizeof(param)) == ESP_OK) {
+                IRItem ir_item;
+                ir_item.id = 1;
+                strncpy(ir_item.name, param, MAX_IR_NAME_LENGTH);
+                ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
+                get_ir_signal(&symbols, &length, ir_item.name);
+                if (symbols == NULL) {
+                    ESP_LOGI(TAG, "not found133");
+                    httpd_resp_send_404(req);
+                    return ESP_OK;
+                }
+                ir_send(symbols, length);
+                free(symbols);
+                ESP_LOGI(TAG, "%s", param);
+                httpd_resp_send(req, param, strlen(param));
+            } else {
+                ESP_LOGI(TAG, "not found11");
+                httpd_resp_send_404(req);
+            }
+        } else {
+            ESP_LOGI(TAG, "not found1221");
+            httpd_resp_send_404(req);
+        }
+        free(buf);
+    } else {
+        httpd_resp_send_404(req);
     }
-    ir_send(symbols, length);
-    free(symbols);
+
     httpd_resp_send(req, "Send success", strlen("Send success"));
     ir_mode = OTHER_MODE;
     return ESP_OK;
@@ -660,7 +691,6 @@ static esp_err_t index_handler(httpd_req_t *req) {
                      "</head><body>"
                      "<h1>ESP32 IR Remote</h1>"
                      "%s" // 插入新生成的 HTML 列表
-                     "<button onclick=\"sendRequest('/ir/send');\">IR Send</button>"
                      "<br>"
                      "<button id=\"send_btn\">IR Save</button>"
                      "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
@@ -670,6 +700,15 @@ static esp_err_t index_handler(httpd_req_t *req) {
                      "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
                      "</body>"
                      " <script>"
+                     "    function sendSelectedOption() {"
+                     "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
+                     "        if (selectedOption) {"
+                     "            var value = selectedOption.value;"
+                     "            sendRequest('/ir/send?name=' + value);"
+                     "        } else {\n"
+                     "            alert(\"Please select an option.\");"
+                     "        }"
+                     "    }"
                      "function sendRequest(url) {"
                      "let xhr = new XMLHttpRequest();"
                      "xhr.open('GET', url, true);"
@@ -705,7 +744,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
     }
     IRItem *items;
     size_t length;
-    char *html = strdup("<ul>");
+    char *html = strdup("<form id=\"radioForm\">");
 
     if (required_size != 0) {
         err = load_struct_array_from_nvs("ir_index_table", &items, &length, my_handle);
@@ -717,11 +756,10 @@ static esp_err_t index_handler(httpd_req_t *req) {
         for (size_t i = 0; i < length; ++i) {
             char *li = NULL;
             ESP_LOGI(TAG, "%s", items[i].name);
-            ESP_LOGI(TAG, "%d", items[i].name[0]);
-            ESP_LOGI(TAG, "%d", items[i].name[1]);
-            ESP_LOGI(TAG, "%d", items[i].name[2]);
-            ESP_LOGI(TAG, "%d", items[i].name[3]);
-            asprintf(&li, "<li>%s</li>", items[i].name);
+//            asprintf(&li, "<li>%s</li>", items[i].name);
+            asprintf(&li,
+                     "<input type=\"radio\" id=\"%s\" name=\"options\" value=\"%s\"><label for=\"%s\">%s</label><br>",
+                     items[i].name, items[i].name, items[i].name, items[i].name);
             if (li == NULL) {
                 // 处理内存分配失败的情况
                 free(html);
@@ -742,7 +780,10 @@ static esp_err_t index_handler(httpd_req_t *req) {
             free(li);
         }
         // 结束 HTML 文档
-        char *temp = realloc(html, strlen(html) + strlen("</ul>") + 1);
+        char *endhtml = "<button type=\"button\" onclick=\"sendSelectedOption()\">IR Send</button></form>";
+        char *temp = realloc(html, strlen(html) +
+                                   strlen(endhtml) +
+                                   1);
         if (temp == NULL) {
             // 处理内存分配失败的情况
             free(html);
@@ -751,6 +792,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
         }
         html = temp;
         printf("\r\n");
+        strcat(html, endhtml);
         free(items);
         ESP_LOGI(TAG, "%s", html);
     } else {
@@ -762,6 +804,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
     }
     nvs_close(my_handle);
     asiprintf(&indexBuffer, my_index, html);
+    free(html);
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
 }

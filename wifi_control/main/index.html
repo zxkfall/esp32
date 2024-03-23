@@ -4,7 +4,16 @@
 </head>
 <body>
 <h1>ESP32 IR Remote</h1>
+<form id="radioForm">
+    <input type="radio" id="option1" name="options" value="option1"><label for="option1">Option 1</label><br>
 
+    <input type="radio" id="option2" name="options" value="option2">
+    <label for="option2">Option 2</label><br>
+
+    <input type="radio" id="option3" name="options" value="option3">
+    <label for="option3">Option 3</label><br>
+
+    <button type="button" onclick="sendSelectedOption()">Submit</button></form>
 
 <button onclick="sendRequest('/ir/send');">IR Send</button>
 <br>
@@ -16,6 +25,15 @@
 <button onclick="sendRequest('/ir/receive/cancel');">IR Receive Cancel</button>
 </body>
 <script>
+    function sendSelectedOption() {
+        var selectedOption = document.querySelector('input[name="options"]:checked');
+        if (selectedOption) {
+            var value = selectedOption.value;
+            sendRequest('/ir/send?name=' + value);
+        } else {
+            alert("Please select an option.");
+        }
+    }
     function sendRequest(url) {
         let xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
