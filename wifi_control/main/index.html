@@ -1,0 +1,34 @@
+<html lang="en">
+<head>
+    <title>ESP32 IR Remote</title>
+</head>
+<body>
+<h1>ESP32 IR Remote</h1>
+
+
+<button onclick="sendRequest('/ir/send');">IR Send</button>
+<br>
+<button id="send_btn">IR Save</button>
+<label for="name_value">send name</label><input id="name_value" type="text">
+<br>
+<button onclick="sendRequest('/ir/receive');">IR Receive</button>
+<br>
+<button onclick="sendRequest('/ir/receive/cancel');">IR Receive Cancel</button>
+</body>
+<script>
+    function sendRequest(url) {
+        let xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.send();
+    }
+
+    let inputElement = document.getElementById("name_value");
+    let buttonElement = document.getElementById("send_btn");
+    // 添加点击事件监听器
+    buttonElement.addEventListener("click", function () {
+        let inputValue = inputElement.value;
+        console.log("Input Value:", inputValue);
+        sendRequest('/ir/save?name=' + inputValue);
+    });
+</script>
+</html>

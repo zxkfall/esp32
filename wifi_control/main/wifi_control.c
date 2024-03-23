@@ -354,6 +354,7 @@ static void ir_receiver_task(void *pvParameters) {
                 printf("\r\n");
                 ESP_LOGI(TAG, "learning done");
                 receive_status = FINISHED;
+                ir_mode = OTHER_MODE;
                 if (rx_channel != NULL) {
                     rmt_disable(rx_channel);
                     rmt_del_channel(rx_channel);
@@ -372,6 +373,7 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    printf("sss:  %s\r\n", key);
     err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
 
@@ -397,7 +399,7 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
 // 定义一个简单的结构体
 typedef struct {
     int id;
-    char *name;
+    char name[26];
 } IRItem;
 
 // 将结构体数组序列化为字节序列
@@ -445,7 +447,6 @@ esp_err_t load_struct_array_from_nvs(const char *key, IRItem **array, size_t *le
 static esp_err_t save_ir_index_handler(IRItem ir_item) {
     nvs_handle_t my_handle;
     esp_err_t err;
-
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
@@ -461,14 +462,18 @@ static esp_err_t save_ir_index_handler(IRItem ir_item) {
         }
 
         for (int i = 0; i < length; ++i) {
-            printf("%s ", items[i].name);
+            printf("pre %s ", items[i].name);
         }
         printf("\r\n");
         IRItem *new_items = (IRItem *) malloc(sizeof(IRItem) * (length + 1));
         for (int i = 0; i < length; ++i) {
-            new_items[i] = items[i];
+            strncpy(new_items[i].name, items[i].name, 25);
+            new_items[i].name[25] = '\0';
+            new_items[i].id = items[i].id;
         }
-        new_items[length] = ir_item;
+        strncpy(new_items[length].name, ir_item.name, 25);
+        new_items[length].name[25] = '\0';
+        new_items[length].id = ir_item.id;
         free(items);
         err = save_struct_array_to_nvs("ir_index_table", new_items, length + 1, my_handle);
         if (err != ESP_OK) {
@@ -552,6 +557,7 @@ static esp_err_t save_ir_handler(httpd_req_t *req) {
         char *buf;
         size_t buf_len;
         buf_len = httpd_req_get_url_query_len(req) + 1;
+        ESP_LOGI(TAG, "%d", buf_len);
         if (buf_len > 1) {
             buf = (char *) malloc(buf_len);
             if (!buf) {
@@ -559,10 +565,15 @@ static esp_err_t save_ir_handler(httpd_req_t *req) {
                 return ESP_FAIL;
             }
             if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-                char param[32];
+                char param[20];
                 if (httpd_query_key_value(buf, "name", param, sizeof(param)) == ESP_OK) {
-                    save_ir_index_handler((IRItem) {1, param});
+                    IRItem ir_item;
+                    ir_item.id = 1;
+                    strncpy(ir_item.name, param, 25);
+                    ir_item.name[25] = '\0';
+                    save_ir_index_handler(ir_item);
                     save_ir_signal(total_avg, symbol_num, param);
+                    ESP_LOGI(TAG, "%s", param);
                     httpd_resp_send(req, param, strlen(param));
                 } else {
                     httpd_resp_send_404(req);
@@ -595,7 +606,7 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
     size_t length = 0;
 
 
-    get_ir_signal(&symbols, &length, "run_time");
+    get_ir_signal(&symbols, &length, "ioi");
     if (symbols == NULL) {
         char *res_message = "Send IR Data";
         httpd_resp_send(req, res_message, strlen(res_message));
@@ -642,25 +653,102 @@ static esp_err_t cancel_receive_ir_handler(httpd_req_t *req) {
 }
 
 static esp_err_t index_handler(httpd_req_t *req) {
-    // index html
-    char *indexBuffer = "<html><head><title>ESP32 IR Remote</title>"
-                        "<script>"
-                        "function sendRequest(url) {"
-                        "  var xhr = new XMLHttpRequest();"
-                        "  xhr.open('GET', url, true);"
-                        "  xhr.send();"
-                        "}"
-                        "</script>"
-                        "</head><body>"
-                        "<h1>ESP32 IR Remote</h1>"
-                        "<button onclick=\"sendRequest('/ir/send');\">IR Send</button>"
-                        "<br>"
-                        "<button onclick=\"sendRequest('/ir/save');\">IR Save</button>"
-                        "<br>"
-                        "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
-                        "<br>"
-                        "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
-                        "</body></html>";
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READONLY, &my_handle);
+    if (err != ESP_OK) return err;
+    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    err = nvs_get_blob(my_handle, "ir_index_table", NULL, &required_size);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+    IRItem *items;
+    size_t length;
+    char *html = strdup("<ul>");
+    if (html == NULL) {
+        return ESP_ERR_NO_MEM; // 处理内存分配失败的情况
+    }
+    if (required_size != 0) {
+        err = load_struct_array_from_nvs("ir_index_table", &items, &length, my_handle);
+        if (err != ESP_OK) {
+            free(html);
+            free(items);
+            return err;
+        }
+        for (size_t i = 0; i < length; ++i) {
+            char *li = NULL;
+            ESP_LOGI(TAG, "%s", items[i].name);
+            ESP_LOGI(TAG, "%d", items[i].name[0]);
+            ESP_LOGI(TAG, "%d", items[i].name[1]);
+            ESP_LOGI(TAG, "%d", items[i].name[2]);
+            ESP_LOGI(TAG, "%d", items[i].name[3]);
+            asprintf(&li, "<li>%s</li>", items[i].name);
+            if (li == NULL) {
+                // 处理内存分配失败的情况
+                free(html);
+                free(items);
+                return ESP_ERR_NO_MEM;
+            }
+            // 扩展 html 内存以容纳新的 <li> 元素
+            char *temp = realloc(html, strlen(html) + strlen(li) + 1);
+            if (temp == NULL) {
+                // 处理内存分配失败的情况
+                free(html);
+                free(li);
+                free(items);
+                return ESP_ERR_NO_MEM;
+            }
+            html = temp;
+            strcat(html, li);
+            free(li);
+        }
+        // 结束 HTML 文档
+        char *temp = realloc(html, strlen(html) + strlen("</ul>") + 1);
+        if (temp == NULL) {
+            // 处理内存分配失败的情况
+            free(html);
+            free(items);
+            return ESP_ERR_NO_MEM;
+        }
+        html = temp;
+        printf("\r\n");
+        free(items);
+        ESP_LOGI(TAG, "%s", html);
+    } else {
+        printf("Nothing saved yet!\r\n");
+    }
+    nvs_close(my_handle);
+// index html
+    char *indexBuffer;
+    asiprintf(&indexBuffer,
+              "<html><head><title>ESP32 IR Remote</title>"
+              "</head><body>"
+              "<h1>ESP32 IR Remote</h1>"
+              "%s" // 插入新生成的 HTML 列表
+              "<button onclick=\"sendRequest('/ir/send');\">IR Send</button>"
+              "<br>"
+              "<button id=\"send_btn\">IR Save</button>"
+              "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
+              "<br>"
+              "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
+              "<br>"
+              "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
+              "</body>"
+              " <script>"
+              "function sendRequest(url) {"
+              "let xhr = new XMLHttpRequest();"
+              "xhr.open('GET', url, true);"
+              "xhr.send();"
+              "}"
+              "let inputElement = document.getElementById(\"name_value\");"
+              "let buttonElement = document.getElementById(\"send_btn\");"
+              "buttonElement.addEventListener(\"click\", function () {"
+              "let inputValue = inputElement.value;"
+              "console.log(\"Input Value:\", inputValue);"
+              "sendRequest('/ir/save?name=' + inputValue);"
+              "});"
+              "</script>"
+              "</html>", html);
+
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
 }
