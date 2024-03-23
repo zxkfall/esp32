@@ -656,17 +656,57 @@ static esp_err_t index_handler(httpd_req_t *req) {
     nvs_handle_t my_handle;
     esp_err_t err;
 
-    err = nvs_open(STORAGE_NAMESPACE, NVS_READONLY, &my_handle);
-    if (err != ESP_OK) return err;
+    char *my_index = "<html><head><title>ESP32 IR Remote</title>"
+                     "</head><body>"
+                     "<h1>ESP32 IR Remote</h1>"
+                     "%s" // 插入新生成的 HTML 列表
+                     "<button onclick=\"sendRequest('/ir/send');\">IR Send</button>"
+                     "<br>"
+                     "<button id=\"send_btn\">IR Save</button>"
+                     "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
+                     "<br>"
+                     "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
+                     "<br>"
+                     "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
+                     "</body>"
+                     " <script>"
+                     "function sendRequest(url) {"
+                     "let xhr = new XMLHttpRequest();"
+                     "xhr.open('GET', url, true);"
+                     "xhr.send();"
+                     "}"
+                     "let inputElement = document.getElementById(\"name_value\");"
+                     "let buttonElement = document.getElementById(\"send_btn\");"
+                     "buttonElement.addEventListener(\"click\", function () {"
+                     "let inputValue = inputElement.value;"
+                     "console.log(\"Input Value:\", inputValue);"
+                     "sendRequest('/ir/save?name=' + inputValue);"
+                     "});"
+                     "</script>"
+                     "</html>";
+    char *indexBuffer;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "111err: %d", err);
+        asiprintf(&indexBuffer, my_index, "<ul></ul>");
+        nvs_close(my_handle);
+        httpd_resp_send(req, my_index, strlen(my_index));
+        return err;
+    }
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
     err = nvs_get_blob(my_handle, "ir_index_table", NULL, &required_size);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "222err: %d", err);
+        asiprintf(&indexBuffer, my_index, "<ul></ul>");
+        nvs_close(my_handle);
+        httpd_resp_send(req, my_index, strlen(my_index));
+        return err;
+    }
     IRItem *items;
     size_t length;
     char *html = strdup("<ul>");
-    if (html == NULL) {
-        return ESP_ERR_NO_MEM; // 处理内存分配失败的情况
-    }
+
     if (required_size != 0) {
         err = load_struct_array_from_nvs("ir_index_table", &items, &length, my_handle);
         if (err != ESP_OK) {
@@ -715,40 +755,13 @@ static esp_err_t index_handler(httpd_req_t *req) {
         ESP_LOGI(TAG, "%s", html);
     } else {
         printf("Nothing saved yet!\r\n");
+        asiprintf(&indexBuffer, my_index, "<ul></ul>");
+        nvs_close(my_handle);
+        httpd_resp_send(req, my_index, strlen(my_index));
+        return ESP_OK;
     }
     nvs_close(my_handle);
-// index html
-    char *indexBuffer;
-    asiprintf(&indexBuffer,
-              "<html><head><title>ESP32 IR Remote</title>"
-              "</head><body>"
-              "<h1>ESP32 IR Remote</h1>"
-              "%s" // 插入新生成的 HTML 列表
-              "<button onclick=\"sendRequest('/ir/send');\">IR Send</button>"
-              "<br>"
-              "<button id=\"send_btn\">IR Save</button>"
-              "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
-              "<br>"
-              "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
-              "<br>"
-              "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
-              "</body>"
-              " <script>"
-              "function sendRequest(url) {"
-              "let xhr = new XMLHttpRequest();"
-              "xhr.open('GET', url, true);"
-              "xhr.send();"
-              "}"
-              "let inputElement = document.getElementById(\"name_value\");"
-              "let buttonElement = document.getElementById(\"send_btn\");"
-              "buttonElement.addEventListener(\"click\", function () {"
-              "let inputValue = inputElement.value;"
-              "console.log(\"Input Value:\", inputValue);"
-              "sendRequest('/ir/save?name=' + inputValue);"
-              "});"
-              "</script>"
-              "</html>", html);
-
+    asiprintf(&indexBuffer, my_index, html);
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
 }
