@@ -46,6 +46,7 @@
 #define OTHER_MODE 2
 #define FINISHED 1
 #define NOT_FINISHED 0
+#define MAX_IR_NAME_LENGTH 25
 
 static const char *TAG = "WIFI_CONTROL";
 static rmt_channel_handle_t tx_channel = NULL;
@@ -396,10 +397,9 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
     return ESP_OK;
 }
 
-// 定义一个简单的结构体
 typedef struct {
     int id;
-    char name[26];
+    char name[MAX_IR_NAME_LENGTH + 1];
 } IRItem;
 
 // 将结构体数组序列化为字节序列
@@ -467,12 +467,12 @@ static esp_err_t save_ir_index_handler(IRItem ir_item) {
         printf("\r\n");
         IRItem *new_items = (IRItem *) malloc(sizeof(IRItem) * (length + 1));
         for (int i = 0; i < length; ++i) {
-            strncpy(new_items[i].name, items[i].name, 25);
-            new_items[i].name[25] = '\0';
+            strncpy(new_items[i].name, items[i].name, MAX_IR_NAME_LENGTH);
+            new_items[i].name[MAX_IR_NAME_LENGTH] = '\0';
             new_items[i].id = items[i].id;
         }
-        strncpy(new_items[length].name, ir_item.name, 25);
-        new_items[length].name[25] = '\0';
+        strncpy(new_items[length].name, ir_item.name, MAX_IR_NAME_LENGTH);
+        new_items[length].name[MAX_IR_NAME_LENGTH] = '\0';
         new_items[length].id = ir_item.id;
         free(items);
         err = save_struct_array_to_nvs("ir_index_table", new_items, length + 1, my_handle);
@@ -569,8 +569,8 @@ static esp_err_t save_ir_handler(httpd_req_t *req) {
                 if (httpd_query_key_value(buf, "name", param, sizeof(param)) == ESP_OK) {
                     IRItem ir_item;
                     ir_item.id = 1;
-                    strncpy(ir_item.name, param, 25);
-                    ir_item.name[25] = '\0';
+                    strncpy(ir_item.name, param, MAX_IR_NAME_LENGTH);
+                    ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
                     save_ir_index_handler(ir_item);
                     save_ir_signal(total_avg, symbol_num, param);
                     ESP_LOGI(TAG, "%s", param);
