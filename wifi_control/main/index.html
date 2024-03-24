@@ -1,31 +1,223 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 IR Remote</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #007bff;
+        }
+
+        form {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        input[type="radio"] {
+            margin-right: 5px;
+            display: inline-block;
+        }
+
+        button {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        input[type="text"] {
+            width: calc(100% - 90px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-right: 10px;
+            box-sizing: border-box;
+        }
+
+        .btn-container {
+            text-align: center;
+        }
+
+        .btn-container button {
+            margin: 10px;
+        }
+
+        .save-section {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f8f9fa;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-wrapper {
+            display: flex;
+            align-items: center;
+        }
+
+        #ir_name {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-right: 10px;
+            box-sizing: border-box;
+        }
+
+        .radio-form {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 10px;
+            text-align: center;
+            justify-content: center;
+        }
+
+        .radio-option input[type="radio"]:checked + label:before {
+            background-color: #007bff;
+        }
+
+        /* 隐藏原始的 radio 按钮 */
+        .radio-option input[type="radio"] {
+            display: none;
+        }
+
+        /* 定义自定义的 radio 按钮样式 */
+        .radio-option label {
+            display: inline-block;
+            padding: 8px 16px;
+            border: 2px solid #007bff;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+
+        /* 当选中时修改背景颜色、文字颜色和边框颜色 */
+        .radio-option input[type="radio"]:checked + label {
+            background-color: #007bff;
+            color: #fff;
+            border-color: #007bff;
+        }
+
+        .btn-container {
+            text-align: center;
+        }
+
+        .btn-container button {
+            margin: 0 5px;
+        }
+
+
+        .send_btn, .delete-btn {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .send_btn:hover, .delete-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .send_btn:active, .delete-btn:active {
+            background-color: #3e8e41;
+        }
+
+        /* 分割线样式 */
+        .divider {
+            margin: 20px auto;
+            height: 1px;
+            background-color: #ccc;
+            width: 80%;
+        }
+
+        /* 区域背景色 */
+        .section-background {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+    </style>
 </head>
 <body>
-<h1>ESP32 IR Remote</h1>
-<form id="radioForm">
-    <input type="radio" id="option1" name="options" value="option1"><label for="option1">Option 1</label><br>
+<div class="container">
+    <h1>ESP32 IR Remote</h1>
+    <div class="section-background">
+        <h2 class="btn-container">IR Sending</h2>
 
-    <input type="radio" id="option2" name="options" value="option2">
-    <label for="option2">Option 2</label><br>
+        <form id="radioForm" class="radio-form">
+            <div class="radio-option">
+                <input type="radio" id="option1" name="options" value="option1">
+                <label for="option1">Option 1</label>
+            </div>
+            <div class="radio-option">
+                <input type="radio" id="option2" name="options" value="option2">
+                <label for="option2">Option 2</label>
+            </div>
+            <div class="radio-option">
+                <input type="radio" id="option3" name="options" value="option3">
+                <label for="option3">Option 3</label>
+            </div>
 
-    <input type="radio" id="option3" name="options" value="option3">
-    <label for="option3">Option 3</label><br>
-
-    <button type="button" onclick="sendSelectedOption()">Submit</button>
-    <button type="button" onclick="deleteSelectedOption()">Delete</button>
-</form>
-
-<button onclick="sendRequest('/ir/send');">IR Send</button>
-<br>
-<button id="send_btn">IR Save</button>
-<label for="name_value">send name</label><input id="name_value" type="text">
-<br>
-<button onclick="sendRequest('/ir/receive');">IR Receive</button>
-<br>
-<button onclick="sendRequest('/ir/receive/cancel');">IR Receive Cancel</button>
-</body>
+        </form>
+        <div class="btn-container">
+            <button type="button" onclick="sendSelectedOption()" class="send_btn">Send</button>
+            <button type="button" onclick="deleteSelectedOption()" class="delete-btn">Delete</button>
+        </div>
+    </div>
+    <div class="divider"></div>
+    <div class="section-background">
+        <h2 class="btn-container">IR Learning</h2>
+        <div class="btn-container">
+            <button onclick="sendRequest('/ir/receive');">Start IR Receive</button>
+            <button onclick="sendRequest('/ir/receive/cancel');">Cancel IR Receive</button>
+        </div>
+        <div class="divider"></div>
+        <div class="save-section">
+            <label for="ir_name">Saved name: </label>
+            <div class="input-wrapper">
+                <input id="ir_name" type="text">
+                <button id="save_btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
 <script>
     function sendSelectedOption() {
         var selectedOption = document.querySelector('input[name="options"]:checked');
@@ -36,6 +228,7 @@
             alert("Please select an option.");
         }
     }
+
     function deleteSelectedOption() {
         var selectedOption = document.querySelector('input[name="options"]:checked');
         if (selectedOption) {
@@ -45,19 +238,21 @@
             alert("Please select an option.");
         }
     }
+
     function sendRequest(url) {
         let xhr = new XMLHttpRequest();
         xhr.open('GET', url, true);
         xhr.send();
     }
 
-    let inputElement = document.getElementById("name_value");
-    let buttonElement = document.getElementById("send_btn");
-    // 添加点击事件监听器
+    let inputElement = document.getElementById("ir_name");
+    let buttonElement = document.getElementById("save_btn");
     buttonElement.addEventListener("click", function () {
         let inputValue = inputElement.value;
         console.log("Input Value:", inputValue);
         sendRequest('/ir/save?name=' + inputValue);
     });
 </script>
+</body>
 </html>
+

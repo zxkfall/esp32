@@ -825,136 +825,154 @@ static esp_err_t cancel_receive_ir_handler(httpd_req_t *req) {
 }
 
 static esp_err_t index_handler(httpd_req_t *req) {
-    nvs_handle_t my_handle;
+    nvs_handle_t nvs_handler;
     esp_err_t err;
 
-    char *my_index = "<html><head><title>ESP32 IR Remote</title>"
-                     "</head><body>"
-                     "<h1>ESP32 IR Remote</h1>"
-                     "%s" // 插入新生成的 HTML 列表
-                     "<br>"
-                     "<button id=\"send_btn\">IR Save</button>"
-                     "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
-                     "<br>"
-                     "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
-                     "<br>"
-                     "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
-                     "</body>"
-                     " <script>"
-                     "    function sendSelectedOption() {"
-                     "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
-                     "        if (selectedOption) {"
-                     "            var value = selectedOption.value;"
-                     "            sendRequest('/ir/send?name=' + value);"
-                     "        } else {"
-                     "            alert(\"Please select an option.\");"
-                     "        }"
-                     "    }"
-                     "    function deleteSelectedOption() {"
-                     "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
-                     "        if (selectedOption) {"
-                     "            var value = selectedOption.value;"
-                     "            sendRequest('/ir/delete?name=' + value);"
-                     "        } else {"
-                     "            alert(\"Please select an option.\");"
-                     "        }\n"
-                     "    }"
-                     "function sendRequest(url) {"
-                     "let xhr = new XMLHttpRequest();"
-                     "xhr.open('GET', url, true);"
-                     "xhr.send();"
-                     "}"
-                     "let inputElement = document.getElementById(\"name_value\");"
-                     "let buttonElement = document.getElementById(\"send_btn\");"
-                     "buttonElement.addEventListener(\"click\", function () {"
-                     "let inputValue = inputElement.value;"
-                     "console.log(\"Input Value:\", inputValue);"
-                     "sendRequest('/ir/save?name=' + inputValue);"
-                     "});"
-                     "</script>"
-                     "</html>";
+    char *index_page = "<ir_items_content><head><title>ESP32 IR Remote</title>"
+                       "</head><body>"
+                       "<h1>ESP32 IR Remote</h1>"
+                       "%s"
+                       "<br>"
+                       "<button id=\"send_btn\">IR Save</button>"
+                       "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
+                       "<br>"
+                       "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
+                       "<br>"
+                       "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
+                       "</body>"
+                       " <script>"
+                       "    function sendSelectedOption() {"
+                       "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
+                       "        if (selectedOption) {"
+                       "            var value = selectedOption.value;"
+                       "            sendRequest('/ir/send?name=' + value);"
+                       "        } else {"
+                       "            alert(\"Please select an option.\");"
+                       "        }"
+                       "    }"
+                       "    function deleteSelectedOption() {"
+                       "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
+                       "        if (selectedOption) {"
+                       "            var value = selectedOption.value;"
+                       "            sendRequest('/ir/delete?name=' + value);"
+                       "        } else {"
+                       "            alert(\"Please select an option.\");"
+                       "        }"
+                       "    }"
+                       "function sendRequest(url) {"
+                       "let xhr = new XMLHttpRequest();"
+                       "xhr.open('GET', url, true);"
+                       "xhr.send();"
+                       "}"
+                       "let inputElement = document.getElementById(\"name_value\");"
+                       "let buttonElement = document.getElementById(\"send_btn\");"
+                       "buttonElement.addEventListener(\"click\", function () {"
+                       "let inputValue = inputElement.value;"
+                       "console.log(\"Input Value:\", inputValue);"
+                       "sendRequest('/ir/save?name=' + inputValue);"
+                       "});"
+                       "</script>"
+                       "</ir_items_content>";
     char *indexBuffer;
-
-    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handler);
     if (err != ESP_OK) {
-        ESP_LOGI(TAG, "111err: %d", err);
-        asiprintf(&indexBuffer, my_index, "<ul></ul>");
-        nvs_close(my_handle);
-        httpd_resp_send(req, my_index, strlen(my_index));
+        asiprintf(&indexBuffer, index_page, "<div>Open nvs error</div>");
+        nvs_close(nvs_handler);
+        httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+        ESP_LOGI(TAG, "Open nvs error, %x", err);
         return err;
     }
-    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
-    err = nvs_get_blob(my_handle, "ir_index_table", NULL, &required_size);
+    size_t required_size = 0;
+    err = nvs_get_blob(nvs_handler, "ir_index_table", NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(TAG, "222err: %d", err);
-        asiprintf(&indexBuffer, my_index, "<ul></ul>");
-        nvs_close(my_handle);
-        httpd_resp_send(req, my_index, strlen(my_index));
+        asiprintf(&indexBuffer, index_page, "<div>Get blob error</div>");
+        nvs_close(nvs_handler);
+        httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+        ESP_LOGI(TAG, "Get blob error %x", err);
         return err;
     }
+
     IRItem *items;
     size_t length;
-    char *html = strdup("<form id=\"radioForm\">");
-
+    char *ir_items_content = strdup("<form id=\"radioForm\">");
     if (required_size != 0) {
-        err = load_struct_array_from_nvs("ir_index_table", &items, &length, my_handle);
+        err = load_struct_array_from_nvs("ir_index_table", &items, &length, nvs_handler);
         if (err != ESP_OK) {
-            free(html);
+            free(ir_items_content);
             free(items);
+            nvs_close(nvs_handler);
+            char *err_msg = "Can not load ir items";
+            asiprintf(&indexBuffer, index_page, err_msg);
+            httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+            ESP_LOGI(TAG, "Can not load ir items %x", err);
             return err;
         }
         for (size_t i = 0; i < length; ++i) {
-            char *li = NULL;
-            ESP_LOGI(TAG, "%s", items[i].name);
-//            asprintf(&li, "<li>%s</li>", items[i].name);
-            asprintf(&li,
+            char *radio_element = NULL;
+            asprintf(&radio_element,
                      "<input type=\"radio\" id=\"%s\" name=\"options\" value=\"%s\"><label for=\"%s\">%s</label><br>",
                      items[i].name, items[i].name, items[i].name, items[i].name);
-            if (li == NULL) {
-                // 处理内存分配失败的情况
-                free(html);
+            if (radio_element == NULL) {
+                free(ir_items_content);
                 free(items);
+                free(radio_element);
+                nvs_close(nvs_handler);
+                char *err_msg = "Can not load ir items";
+                asiprintf(&indexBuffer, index_page, err_msg);
+                httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+                ESP_LOGI(TAG, "Can not load ir items %x", err);
                 return ESP_ERR_NO_MEM;
             }
-            // 扩展 html 内存以容纳新的 <li> 元素
-            char *temp = realloc(html, strlen(html) + strlen(li) + 1);
+            char *temp = realloc(ir_items_content, strlen(ir_items_content) + strlen(radio_element) + 1);
             if (temp == NULL) {
-                // 处理内存分配失败的情况
-                free(html);
-                free(li);
+                free(ir_items_content);
                 free(items);
+                free(radio_element);
+                nvs_close(nvs_handler);
+                char *err_msg = "Can not add ir items";
+                asiprintf(&indexBuffer, index_page, err_msg);
+                httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+                ESP_LOGI(TAG, "Can not add ir items %x", err);
                 return ESP_ERR_NO_MEM;
             }
-            html = temp;
-            strcat(html, li);
-            free(li);
+            ir_items_content = temp;
+            strcat(ir_items_content, radio_element);
+            free(radio_element);
         }
-        // 结束 HTML 文档
-        char *endhtml = "<button type=\"button\" onclick=\"sendSelectedOption()\">IR Send</button><button type=\"button\" onclick=\"deleteSelectedOption()\">Delete</button></form>";
-        char *temp = realloc(html, strlen(html) +
-                                   strlen(endhtml) +
-                                   1);
+        char *ir_items_content_end = "<button type=\"button\" onclick=\"sendSelectedOption()\">IR Send</button>"
+                                     "<button type=\"button\" onclick=\"deleteSelectedOption()\">Delete</button></form>";
+        char *temp = realloc(ir_items_content, strlen(ir_items_content) +
+                                               strlen(ir_items_content_end) +
+                                               1);
         if (temp == NULL) {
-            // 处理内存分配失败的情况
-            free(html);
+            free(ir_items_content);
             free(items);
+            free(ir_items_content_end);
+            free(temp);
+            nvs_close(nvs_handler);
+            char *err_msg = "Can not add ir items end";
+            asiprintf(&indexBuffer, index_page, err_msg);
+            httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+            ESP_LOGI(TAG, "Can not add ir items end %x", err);
             return ESP_ERR_NO_MEM;
         }
-        html = temp;
-        printf("\r\n");
-        strcat(html, endhtml);
+        ir_items_content = temp;
+        strcat(ir_items_content, ir_items_content_end);
         free(items);
-        ESP_LOGI(TAG, "%s", html);
+        free(ir_items_content_end);
+        free(temp);
+        ESP_LOGI(TAG, "%s", ir_items_content);
     } else {
-        printf("Nothing saved yet!\r\n");
-        asiprintf(&indexBuffer, my_index, "<ul></ul>");
-        nvs_close(my_handle);
-        httpd_resp_send(req, my_index, strlen(my_index));
+        ESP_LOGI(TAG, "Nothing saved yet!");
+        asiprintf(&indexBuffer, index_page, "<div>Nothing saved yet!</div>");
+        free(ir_items_content);
+        nvs_close(nvs_handler);
+        httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
         return ESP_OK;
     }
-    nvs_close(my_handle);
-    asiprintf(&indexBuffer, my_index, html);
-    free(html);
+    nvs_close(nvs_handler);
+    asiprintf(&indexBuffer, index_page, ir_items_content);
+    free(ir_items_content);
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
 }
