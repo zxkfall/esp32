@@ -13,7 +13,9 @@
     <input type="radio" id="option3" name="options" value="option3">
     <label for="option3">Option 3</label><br>
 
-    <button type="button" onclick="sendSelectedOption()">Submit</button></form>
+    <button type="button" onclick="sendSelectedOption()">Submit</button>
+    <button type="button" onclick="deleteSelectedOption()">Delete</button>
+</form>
 
 <button onclick="sendRequest('/ir/send');">IR Send</button>
 <br>
@@ -30,6 +32,15 @@
         if (selectedOption) {
             var value = selectedOption.value;
             sendRequest('/ir/send?name=' + value);
+        } else {
+            alert("Please select an option.");
+        }
+    }
+    function deleteSelectedOption() {
+        var selectedOption = document.querySelector('input[name="options"]:checked');
+        if (selectedOption) {
+            var value = selectedOption.value;
+            sendRequest('/ir/delete?name=' + value);
         } else {
             alert("Please select an option.");
         }

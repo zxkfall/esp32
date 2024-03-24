@@ -73,6 +73,8 @@ static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done
 
 static esp_err_t save_ir_handler(httpd_req_t *req);
 
+static esp_err_t delete_ir_handler(httpd_req_t *req);
+
 static esp_err_t send_ir_handler(httpd_req_t *req);
 
 static esp_err_t receive_ir_handler(httpd_req_t *req);
@@ -103,11 +105,16 @@ static httpd_uri_t save_ir_action = {
         .method    = HTTP_GET,
         .handler   = save_ir_handler,
 };
-
 static httpd_uri_t send_ir_action = {
         .uri       = "/ir/send",
         .method    = HTTP_GET,
         .handler   = send_ir_handler,
+};
+
+static httpd_uri_t delete_ir_action = {
+        .uri       = "/ir/delete",
+        .method    = HTTP_GET,
+        .handler   = delete_ir_handler,
 };
 static httpd_uri_t receive_ir_action = {
         .uri       = "/ir/receive",
@@ -124,6 +131,7 @@ static const httpd_uri_t *handlers[] = {
         &send_ir_action,
         &receive_ir_action,
         &cancel_receive_ir_action,
+        &delete_ir_action,
         &index_html
 };
 
@@ -387,6 +395,8 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
     }
     printf("\r\n");
 
+    nvs_erase_key(my_handle, key);
+    nvs_commit(my_handle);
     err = nvs_set_blob(my_handle, key, ir_durations, (length * 2 + 1) * sizeof(uint32_t));
     if (err != ESP_OK) return err;
 
@@ -418,10 +428,17 @@ static void deserialize_struct_array(uint8_t *data, size_t size, IRItem **array,
 
 // 保存结构体数组到NVS
 static esp_err_t save_struct_array_to_nvs(const char *key, IRItem *array, size_t length, nvs_handle_t my_handle) {
+    esp_err_t err;
+    nvs_erase_key(my_handle, key);
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) return err;
     uint8_t *data;
     size_t size;
     serialize_struct_array(array, length, &data, &size);
-    esp_err_t err = nvs_set_blob(my_handle, key, data, size);
+    err = nvs_set_blob(my_handle, key, data, size);
+    if (err != ESP_OK) return err;
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) return err;
     free(data);
     return err;
 }
@@ -487,9 +504,62 @@ static esp_err_t save_ir_index_handler(IRItem ir_item) {
             return err;
         }
     }
+    nvs_close(my_handle);
+    return ESP_OK;
+}
 
-    err = nvs_commit(my_handle);
+static esp_err_t remove_ir_index_handler(IRItem ir_item) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
+    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    err = nvs_get_blob(my_handle, "ir_index_table", NULL, &required_size);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+    if (required_size != 0) {
+        IRItem *items;
+        size_t length;
+        err = load_struct_array_from_nvs("ir_index_table", &items, &length, my_handle);
+        if (err != ESP_OK) {
+            free(items);
+            nvs_close(my_handle);
+            return err;
+        } else if (length == 1) {
+            nvs_erase_key(my_handle, "ir_index_table");
+            free(items);
+            nvs_close(my_handle);
+            return ESP_OK;
+        } else {
+            printf("length: %d\r\n", length);
+            for (int i = 0; i < length; ++i) {
+                printf("pre %s ", items[i].name);
+            }
+            printf("\r\n");
+            IRItem *new_items = (IRItem *) malloc(sizeof(IRItem) * (length - 1));
+            int total_length = 0;
+            for (int i = 0; i < length; ++i) {
+                if (strcmp(items[i].name, ir_item.name) == 0) {
+                    printf("remove %s ", items[i].name);
+                } else {
+                    strncpy(new_items[total_length].name, items[i].name, MAX_IR_NAME_LENGTH);
+                    new_items[total_length].name[MAX_IR_NAME_LENGTH] = '\0';
+                    new_items[total_length].id = items[i].id;
+                    printf("all %s ", items[i].name);
+                    total_length++;
+                }
+            }
+            free(items);
+            err = save_struct_array_to_nvs("ir_index_table", new_items, total_length, my_handle);
+            if (err != ESP_OK) {
+                free(new_items);
+                return err;
+            }
+            free(new_items);
+        }
+
+    } else {
+        printf("Nothing saved yet! No need to delete.\r\n");
+    }
 
     nvs_close(my_handle);
     return ESP_OK;
@@ -532,6 +602,29 @@ static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, cons
         printf("\r\n");
         free(ir_symbols);
     }
+    nvs_close(my_handle);
+    return ESP_OK;
+}
+
+static esp_err_t erase_ir_signal(const char *key) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+    // Open
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return err;
+
+    // Read run time blob
+    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    // obtain required memory space to store blob being read from NVS
+    err = nvs_get_blob(my_handle, key, NULL, &required_size);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+    if (required_size == 0) {
+        printf("Nothing saved yet!\r\n");
+    } else {
+        nvs_erase_key(my_handle, key);
+        printf("erase success!\r\n");
+    }
+    nvs_commit(my_handle);
     nvs_close(my_handle);
     return ESP_OK;
 }
@@ -650,6 +743,54 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t delete_ir_handler(httpd_req_t *req) {
+    if (ir_mode == RECEIVE_MODE) {
+        char *res_message = "Receive IR Data";
+        httpd_resp_send(req, res_message, strlen(res_message));
+        return ESP_OK;
+    }
+
+    gpio_set_level(REQUEST_GPIO_NUM, 0);
+
+    char *buf;
+    size_t buf_len;
+    buf_len = httpd_req_get_url_query_len(req) + 1;
+    ESP_LOGI(TAG, "%d", buf_len);
+    if (buf_len > 1) {
+        buf = (char *) malloc(buf_len);
+        if (!buf) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            char param[20];
+            if (httpd_query_key_value(buf, "name", param, sizeof(param)) == ESP_OK) {
+                IRItem ir_item;
+                ir_item.id = 1;
+                strncpy(ir_item.name, param, MAX_IR_NAME_LENGTH);
+                ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
+
+                remove_ir_index_handler(ir_item);
+                ESP_LOGI(TAG, "%s", param);
+                httpd_resp_send(req, param, strlen(param));
+            } else {
+                ESP_LOGI(TAG, "not found11");
+                httpd_resp_send_404(req);
+            }
+        } else {
+            ESP_LOGI(TAG, "not found1221");
+            httpd_resp_send_404(req);
+        }
+        free(buf);
+    } else {
+        httpd_resp_send_404(req);
+    }
+
+    httpd_resp_send(req, "Send success", strlen("Send success"));
+    ir_mode = OTHER_MODE;
+    return ESP_OK;
+}
+
 static esp_err_t receive_ir_handler(httpd_req_t *req) {
     if (ir_mode == RECEIVE_MODE) {
         char *res_message = "Receive IR Data";
@@ -705,9 +846,18 @@ static esp_err_t index_handler(httpd_req_t *req) {
                      "        if (selectedOption) {"
                      "            var value = selectedOption.value;"
                      "            sendRequest('/ir/send?name=' + value);"
-                     "        } else {\n"
+                     "        } else {"
                      "            alert(\"Please select an option.\");"
                      "        }"
+                     "    }"
+                     "    function deleteSelectedOption() {"
+                     "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
+                     "        if (selectedOption) {"
+                     "            var value = selectedOption.value;"
+                     "            sendRequest('/ir/delete?name=' + value);"
+                     "        } else {"
+                     "            alert(\"Please select an option.\");"
+                     "        }\n"
                      "    }"
                      "function sendRequest(url) {"
                      "let xhr = new XMLHttpRequest();"
@@ -780,7 +930,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
             free(li);
         }
         // 结束 HTML 文档
-        char *endhtml = "<button type=\"button\" onclick=\"sendSelectedOption()\">IR Send</button></form>";
+        char *endhtml = "<button type=\"button\" onclick=\"sendSelectedOption()\">IR Send</button><button type=\"button\" onclick=\"deleteSelectedOption()\">Delete</button></form>";
         char *temp = realloc(html, strlen(html) +
                                    strlen(endhtml) +
                                    1);
