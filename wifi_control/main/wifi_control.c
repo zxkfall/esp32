@@ -612,10 +612,10 @@ static esp_err_t erase_ir_signal(const char *key) {
     err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size == 0) {
-        printf("Nothing saved yet!\r\n");
+        ESP_LOGI(TAG, "Nothing saved yet!");
     } else {
         nvs_erase_key(my_handle, key);
-        printf("erase success!\r\n");
+        ESP_LOGI(TAG, "erase success!");
     }
     nvs_commit(my_handle);
     nvs_close(my_handle);
@@ -643,7 +643,6 @@ static esp_err_t save_ir_handler(httpd_req_t *req) {
         char *buf;
         size_t buf_len;
         buf_len = httpd_req_get_url_query_len(req) + 1;
-        ESP_LOGI(TAG, "%d", buf_len);
         if (buf_len > 1) {
             buf = (char *) malloc(buf_len);
             if (!buf) {
@@ -659,7 +658,7 @@ static esp_err_t save_ir_handler(httpd_req_t *req) {
                     ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
                     save_ir_index_handler(ir_item);
                     save_ir_signal(total_avg, symbol_num, param);
-                    ESP_LOGI(TAG, "%s", param);
+                    ESP_LOGI(TAG, "Query value %s", param);
                     httpd_resp_send(req, param, strlen(param));
                 } else {
                     httpd_resp_send_404(req);
@@ -690,11 +689,9 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
     gpio_set_level(REQUEST_GPIO_NUM, 0);
     rmt_symbol_word_t *symbols;
     size_t length = 0;
-
     char *buf;
     size_t buf_len;
     buf_len = httpd_req_get_url_query_len(req) + 1;
-    ESP_LOGI(TAG, "%d", buf_len);
     if (buf_len > 1) {
         buf = (char *) malloc(buf_len);
         if (!buf) {
@@ -710,7 +707,7 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
                 ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
                 get_ir_signal(&symbols, &length, ir_item.name);
                 if (symbols == NULL) {
-                    ESP_LOGI(TAG, "not found133");
+                    ESP_LOGI(TAG, "Not found for %s", param);
                     httpd_resp_send_404(req);
                     return ESP_OK;
                 }
@@ -719,11 +716,11 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
                 ESP_LOGI(TAG, "%s", param);
                 httpd_resp_send(req, param, strlen(param));
             } else {
-                ESP_LOGI(TAG, "not found11");
+                ESP_LOGI(TAG, "Not found name key");
                 httpd_resp_send_404(req);
             }
         } else {
-            ESP_LOGI(TAG, "not found1221");
+            ESP_LOGI(TAG, "Not found query string");
             httpd_resp_send_404(req);
         }
         free(buf);
@@ -731,7 +728,8 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
         httpd_resp_send_404(req);
     }
 
-    httpd_resp_send(req, "Send success", strlen("Send success"));
+    char *success_rep = "Send success";
+    httpd_resp_send(req, success_rep, strlen(success_rep));
     ir_mode = OTHER_MODE;
     return ESP_OK;
 }
@@ -764,14 +762,14 @@ static esp_err_t delete_ir_handler(httpd_req_t *req) {
                 ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
                 remove_ir_index_handler(ir_item);
                 erase_ir_signal(param);
-                ESP_LOGI(TAG, "%s", param);
+                ESP_LOGI(TAG, "Delete %s", param);
                 httpd_resp_send(req, param, strlen(param));
             } else {
-                ESP_LOGI(TAG, "not found11");
+                ESP_LOGI(TAG, "Not found name key");
                 httpd_resp_send_404(req);
             }
         } else {
-            ESP_LOGI(TAG, "not found1221");
+            ESP_LOGI(TAG, "Not found query string");
             httpd_resp_send_404(req);
         }
         free(buf);
@@ -810,7 +808,6 @@ static esp_err_t cancel_receive_ir_handler(httpd_req_t *req) {
         }
         ESP_LOGI(TAG, "Cancel Receive IR Data");
         vTaskDelete(rmt_receive_task_handle);
-
         res_message = "Cancel Receive IR Data";
     }
     httpd_resp_send(req, res_message, strlen(res_message));
@@ -859,11 +856,9 @@ static esp_err_t index_handler(httpd_req_t *req) {
         }
         for (size_t i = 0; i < length; ++i) {
             char *radio_element = NULL;
-            char *sss =
+            char *radio_ele_template =
                     "<div class=\"rd-op\"><input type=\"radio\" id=\"%s\" name=\"options\" value=\"%s\"><label for=\"%s\">%s</label></div>";
-            asprintf(&radio_element,
-                     sss,
-                     items[i].name, items[i].name, items[i].name, items[i].name);
+            asprintf(&radio_element, radio_ele_template, items[i].name, items[i].name, items[i].name, items[i].name);
             if (radio_element == NULL) {
                 free(ir_items_content);
                 free(items);
@@ -892,9 +887,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
             free(radio_element);
         }
         char *ir_items_content_end = "</form>";
-        char *temp = realloc(ir_items_content, strlen(ir_items_content) +
-                                               strlen(ir_items_content_end) +
-                                               1);
+        char *temp = realloc(ir_items_content, strlen(ir_items_content) + strlen(ir_items_content_end) + 1);
         if (temp == NULL) {
             free(ir_items_content);
             free(items);
