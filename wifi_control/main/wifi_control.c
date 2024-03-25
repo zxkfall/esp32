@@ -565,13 +565,9 @@ static esp_err_t remove_ir_index_handler(IRItem ir_item) {
 static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, const char *key) {
     nvs_handle_t my_handle;
     esp_err_t err;
-    // Open
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
-
-    // Read run time blob
-    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
-    // obtain required memory space to store blob being read from NVS
+    size_t required_size = 0;
     err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size == 0) {
@@ -713,7 +709,7 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
                 }
                 ir_send(symbols, length);
                 free(symbols);
-                ESP_LOGI(TAG, "%s", param);
+                ESP_LOGI(TAG, "IR signal name: %s", param);
                 httpd_resp_send(req, param, strlen(param));
             } else {
                 ESP_LOGI(TAG, "Not found name key");
@@ -902,7 +898,6 @@ static esp_err_t index_handler(httpd_req_t *req) {
         }
         ir_items_content = temp;
         strcat(ir_items_content, ir_items_content_end);
-        ESP_LOGI(TAG, "%s", ir_items_content);
     } else {
         ESP_LOGI(TAG, "Nothing saved yet!");
         asiprintf(&indexBuffer, index_page, "<div>Nothing saved yet!</div>");
