@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 IR Remote</title>
+    <style>body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 0
+    }
+
+    .ct {
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, .1)
+    }
+
+    h1 {
+        text-align: center;
+        color: #007bff
+    }
+
+    form {
+        margin-bottom: 20px;
+        text-align: center
+    }
+
+    label {
+        display: block;
+        margin-bottom: 10px;
+        cursor: pointer
+    }
+
+    input[type="radio"] {
+        margin-right: 5px;
+        display: inline-block
+    }
+
+    button {
+        background-color: #007bff;
+        color: #fff;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color .3s
+    }
+
+    button:hover {
+        background-color: #0056b3
+    }
+
+    .btn-ct {
+        text-align: center
+    }
+
+    .btn-ct button {
+        margin: 10px
+    }
+
+    .sv-sct {
+        padding: 15px;
+        border-radius: 8px;
+        background-color: white;
+    }
+
+    .in-wr {
+        display: flex;
+        align-items: center
+    }
+
+    #ir_name {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        margin-right: 10px;
+        box-sizing: border-box
+    }
+
+    .radio-form {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        text-align: center;
+        justify-content: center
+    }
+
+    .rd-op input[type="radio"]:checked + label:before {
+        background-color: #007bff
+    }
+
+    .rd-op input[type="radio"] {
+        display: none
+    }
+
+    .rd-op label {
+        display: inline-block;
+        padding: 8px 16px;
+        border: 2px solid #007bff;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color .3s, color .3s, border-color .3s
+    }
+
+    .rd-op input[type="radio"]:checked + label {
+        background-color: #007bff
+    }
+
+    .dvd {
+        margin: 20px auto;
+        height: 1px;
+        background-color: #ccc;
+        width: 80%
+    }
+
+    .sct-bg {
+        background-color: #f0f0f0;
+        padding: 10px;
+        border-radius: 8px;
+    }</style>
+</head>
+<body>
+<div class="ct"><h1>ESP32 IR Remote</h1>
+    <div class="sct-bg"><h2 class="btn-ct">IR Sending</h2>%s
+        <div class="btn-ct">
+            <button type="button" onclick="sendOption()" class="send_btn">Send</button>
+            <button type="button" onclick="deleteOption()" class="delete-btn">Delete</button>
+        </div>
+    </div>
+    <div class="dvd"></div>
+    <div class="sct-bg"><h2 class="btn-ct">IR Learning</h2>
+        <div class="btn-ct">
+            <button onclick="sendRe('/ir/receive')">Start IR Receive</button>
+            <button onclick="sendRe('/ir/receive/cancel')">Cancel IR Receive</button>
+        </div>
+        <div class="dvd"></div>
+        <div class="sv-sct"><label for="ir_name">Saved name: </label>
+            <div class="in-wr"><input id="ir_name" type="text">
+                <button id="save_btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>function reo(s) {
+    let t = document.querySelector('input[name="options"]:checked');
+    if (t) sendRe(s + '?name=' + t.value);
+    else alert("Please select an option.");
+}
+
+function sendOption() {
+    reo('/ir/send')
+}
+
+function deleteOption() {
+    reo('/ir/delete')
+}
+
+function sendRe(s) {
+    let t = new XMLHttpRequest;
+    t.open('GET', s, !0), t.send()
+}
+
+let e = document.getElementById("ir_name"), t = document.getElementById("save_btn");
+t.addEventListener("click", () => {
+    let t = e.value;
+    sendRe('/ir/save?name=' + t)
+})</script>
+</body>
+</html>

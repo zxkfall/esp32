@@ -828,51 +828,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
     nvs_handle_t nvs_handler;
     esp_err_t err;
 
-    char *index_page = "<ir_items_content><head><title>ESP32 IR Remote</title>"
-                       "</head><body>"
-                       "<h1>ESP32 IR Remote</h1>"
-                       "%s"
-                       "<br>"
-                       "<button id=\"send_btn\">IR Save</button>"
-                       "<label for=\"name_value\">send name</label><input id=\"name_value\" type=\"text\">"
-                       "<br>"
-                       "<button onclick=\"sendRequest('/ir/receive');\">IR Receive</button>"
-                       "<br>"
-                       "<button onclick=\"sendRequest('/ir/receive/cancel');\">IR Receive Cancel</button>"
-                       "</body>"
-                       " <script>"
-                       "    function sendSelectedOption() {"
-                       "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
-                       "        if (selectedOption) {"
-                       "            var value = selectedOption.value;"
-                       "            sendRequest('/ir/send?name=' + value);"
-                       "        } else {"
-                       "            alert(\"Please select an option.\");"
-                       "        }"
-                       "    }"
-                       "    function deleteSelectedOption() {"
-                       "        var selectedOption = document.querySelector('input[name=\"options\"]:checked');"
-                       "        if (selectedOption) {"
-                       "            var value = selectedOption.value;"
-                       "            sendRequest('/ir/delete?name=' + value);"
-                       "        } else {"
-                       "            alert(\"Please select an option.\");"
-                       "        }"
-                       "    }"
-                       "function sendRequest(url) {"
-                       "let xhr = new XMLHttpRequest();"
-                       "xhr.open('GET', url, true);"
-                       "xhr.send();"
-                       "}"
-                       "let inputElement = document.getElementById(\"name_value\");"
-                       "let buttonElement = document.getElementById(\"send_btn\");"
-                       "buttonElement.addEventListener(\"click\", function () {"
-                       "let inputValue = inputElement.value;"
-                       "console.log(\"Input Value:\", inputValue);"
-                       "sendRequest('/ir/save?name=' + inputValue);"
-                       "});"
-                       "</script>"
-                       "</ir_items_content>";
+    char *index_page =
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\"content=\"width=device-width, initial-scale=1.0\"><title>ESP32 IR Remote</title><style>body{font-family:sans-serif;margin:0;padding:0}.ct{max-width:600px;margin:20px auto;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,.1)}h1{text-align:center;color:#007bff}form{margin-bottom:20px;text-align:center}label{display:block;margin-bottom:10px;cursor:pointer}input[type=\"radio\"]{margin-right:5px;display:inline-block}button{background-color:#007bff;color:#fff;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;transition:background-color.3s}button:hover{background-color:#0056b3}.btn-ct{text-align:center}.btn-ct button{margin:10px}.sv-sct{padding:15px;border-radius:8px;background-color:white}.in-wr{display:flex;align-items:center}#ir_name{flex:1;padding:10px;border:1px solid#ccc;border-radius:4px;margin-right:10px;box-sizing:border-box}.radio-form{display:flex;flex-direction:row;align-items:center;gap:10px;text-align:center;justify-content:center}.rd-op input[type=\"radio\"]:checked+label:before{background-color:#007bff}.rd-op input[type=\"radio\"]{display:none}.rd-op label{display:inline-block;padding:8px 16px;border:2px solid#007bff;border-radius:4px;cursor:pointer;transition:background-color.3s,color.3s,border-color.3s}.rd-op input[type=\"radio\"]:checked+label{background-color:#007bff}.dvd{margin:20px auto;height:1px;background-color:#ccc;width:80%}.sct-bg{background-color:#f0f0f0;padding:10px;border-radius:8px}</style></head><body><div class=\"ct\"><h1>ESP32 IR Remote</h1><div class=\"sct-bg\"><h2 class=\"btn-ct\">IR Sending</h2>%s<div class=\"btn-ct\"><button type=\"button\"onclick=\"sendOption()\"class=\"send_btn\">Send</button><button type=\"button\"onclick=\"deleteOption()\"class=\"delete-btn\">Delete</button></div></div><div class=\"dvd\"></div><div class=\"sct-bg\"><h2 class=\"btn-ct\">IR Learning</h2><div class=\"btn-ct\"><button onclick=\"sendRe('/ir/receive')\">Start IR Receive</button><button onclick=\"sendRe('/ir/receive/cancel')\">Cancel IR Receive</button></div><div class=\"dvd\"></div><div class=\"sv-sct\"><label for=\"ir_name\">Saved name:</label><div class=\"in-wr\"><input id=\"ir_name\"type=\"text\"><button id=\"save_btn\">Save</button></div></div></div></div><script>function reo(s){let t=document.querySelector('input[name=\"options\"]:checked');if(t)sendRe(s+'?name='+t.value);else alert(\"Please select an option.\")}function sendOption(){reo('/ir/send')}function deleteOption(){reo('/ir/delete')}function sendRe(s){let t=new XMLHttpRequest;t.open('GET',s,!0),t.send()}let e=document.getElementById(\"ir_name\"),t=document.getElementById(\"save_btn\");t.addEventListener(\"click\",()=>{let t=e.value;sendRe('/ir/save?name='+t)})</script></body></html>";
     char *indexBuffer;
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handler);
     if (err != ESP_OK) {
@@ -894,7 +851,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
 
     IRItem *items;
     size_t length;
-    char *ir_items_content = strdup("<form id=\"radioForm\">");
+    char *ir_items_content = strdup("<form id=\"radioForm\" class=\"radio-form\">");
     if (required_size != 0) {
         err = load_struct_array_from_nvs("ir_index_table", &items, &length, nvs_handler);
         if (err != ESP_OK) {
@@ -909,8 +866,10 @@ static esp_err_t index_handler(httpd_req_t *req) {
         }
         for (size_t i = 0; i < length; ++i) {
             char *radio_element = NULL;
+            char *sss =
+                    "<div class=\"rd-op\"><input type=\"radio\" id=\"%s\" name=\"options\" value=\"%s\"><label for=\"%s\">%s</label></div>";
             asprintf(&radio_element,
-                     "<input type=\"radio\" id=\"%s\" name=\"options\" value=\"%s\"><label for=\"%s\">%s</label><br>",
+                     sss,
                      items[i].name, items[i].name, items[i].name, items[i].name);
             if (radio_element == NULL) {
                 free(ir_items_content);
@@ -939,8 +898,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
             strcat(ir_items_content, radio_element);
             free(radio_element);
         }
-        char *ir_items_content_end = "<button type=\"button\" onclick=\"sendSelectedOption()\">IR Send</button>"
-                                     "<button type=\"button\" onclick=\"deleteSelectedOption()\">Delete</button></form>";
+        char *ir_items_content_end = "</form>";
         char *temp = realloc(ir_items_content, strlen(ir_items_content) +
                                                strlen(ir_items_content_end) +
                                                1);
@@ -958,9 +916,6 @@ static esp_err_t index_handler(httpd_req_t *req) {
         }
         ir_items_content = temp;
         strcat(ir_items_content, ir_items_content_end);
-        free(items);
-        free(ir_items_content_end);
-        free(temp);
         ESP_LOGI(TAG, "%s", ir_items_content);
     } else {
         ESP_LOGI(TAG, "Nothing saved yet!");
@@ -972,7 +927,6 @@ static esp_err_t index_handler(httpd_req_t *req) {
     }
     nvs_close(nvs_handler);
     asiprintf(&indexBuffer, index_page, ir_items_content);
-    free(ir_items_content);
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
     return ESP_OK;
 }
