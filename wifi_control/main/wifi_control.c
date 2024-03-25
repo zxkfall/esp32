@@ -261,9 +261,7 @@ static void ir_send(rmt_symbol_word_t *symbols, size_t length) {
     rmt_copy_encoder_config_t raw_config = {};
     rmt_encoder_handle_t raw_encoder = NULL;
     ESP_ERROR_CHECK(rmt_new_copy_encoder(&raw_config, &raw_encoder));
-    ESP_LOGI(TAG, "start to send the average value");
-    ESP_LOGI(TAG, "===============================================================");
-    ESP_LOGI(TAG, "send length: %d", length);
+    ESP_LOGI(TAG, "Start to send the IR signal, signal length: %d", length);
     ESP_ERROR_CHECK(
             rmt_transmit(tx_channel,
                          raw_encoder,
@@ -274,7 +272,7 @@ static void ir_send(rmt_symbol_word_t *symbols, size_t length) {
     rmt_tx_wait_all_done(tx_channel, portMAX_DELAY);
     rmt_disable(tx_channel);
     rmt_del_channel(tx_channel);
-    ESP_LOGI(TAG, "send the average value done");
+    ESP_LOGI(TAG, "Send the average value done");
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 }
 
@@ -382,7 +380,7 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
-    printf("sss:  %s\r\n", key);
+    ESP_LOGI(TAG, "IR signal name: %s", key);
     err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
 
@@ -394,7 +392,6 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
         printf("%d,%d ", symbols[i - 1].duration0, symbols[i - 1].duration1);
     }
     printf("\r\n");
-
     nvs_erase_key(my_handle, key);
     nvs_commit(my_handle);
     err = nvs_set_blob(my_handle, key, ir_durations, (length * 2 + 1) * sizeof(uint32_t));
@@ -466,7 +463,7 @@ static esp_err_t save_ir_index_handler(IRItem ir_item) {
     esp_err_t err;
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
-    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    size_t required_size = 0;
     err = nvs_get_blob(my_handle, "ir_index_table", NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size != 0) {
@@ -477,9 +474,9 @@ static esp_err_t save_ir_index_handler(IRItem ir_item) {
             free(items);
             return err;
         }
-
+        ESP_LOGI(TAG, "Original IR signals:");
         for (int i = 0; i < length; ++i) {
-            printf("pre %s ", items[i].name);
+            printf("%s ", items[i].name);
         }
         printf("\r\n");
         IRItem *new_items = (IRItem *) malloc(sizeof(IRItem) * (length + 1));
@@ -530,21 +527,21 @@ static esp_err_t remove_ir_index_handler(IRItem ir_item) {
             nvs_close(my_handle);
             return ESP_OK;
         } else {
-            printf("length: %d\r\n", length);
+            ESP_LOGI(TAG, "Original IR signals:");
             for (int i = 0; i < length; ++i) {
-                printf("pre %s ", items[i].name);
+                printf("%s ", items[i].name);
             }
             printf("\r\n");
             IRItem *new_items = (IRItem *) malloc(sizeof(IRItem) * (length - 1));
             int total_length = 0;
             for (int i = 0; i < length; ++i) {
                 if (strcmp(items[i].name, ir_item.name) == 0) {
-                    printf("remove %s ", items[i].name);
+                    ESP_LOGI(TAG, "Remove IR signal for %s", items[i].name);
                 } else {
                     strncpy(new_items[total_length].name, items[i].name, MAX_IR_NAME_LENGTH);
                     new_items[total_length].name[MAX_IR_NAME_LENGTH] = '\0';
                     new_items[total_length].id = items[i].id;
-                    printf("all %s ", items[i].name);
+                    ESP_LOGI(TAG, "Left signal: %s", items[i].name);
                     total_length++;
                 }
             }
@@ -558,7 +555,7 @@ static esp_err_t remove_ir_index_handler(IRItem ir_item) {
         }
 
     } else {
-        printf("Nothing saved yet! No need to delete.\r\n");
+        ESP_LOGI(TAG, "Nothing saved yet! No need to delete.");
     }
 
     nvs_close(my_handle);
@@ -578,7 +575,7 @@ static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, cons
     err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size == 0) {
-        printf("Nothing saved yet!\r\n");
+        ESP_LOGI(TAG, "Nothing saved yet!");
     } else {
         uint32_t *ir_symbols = (uint32_t *) malloc(required_size);
         err = nvs_get_blob(my_handle, key, ir_symbols, &required_size);
@@ -586,7 +583,7 @@ static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, cons
             free(ir_symbols);
             return err;
         }
-        ESP_LOGI(TAG, "ir_symbols: %lu", ir_symbols[0]);
+        ESP_LOGI(TAG, "IR symbols length: %lu", ir_symbols[0]);
         *length = ir_symbols[0];
         *symbols = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * ir_symbols[0]);
         for (int i = 1; i < ir_symbols[0] + 1; ++i) {
@@ -609,13 +606,9 @@ static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, cons
 static esp_err_t erase_ir_signal(const char *key) {
     nvs_handle_t my_handle;
     esp_err_t err;
-    // Open
     err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
     if (err != ESP_OK) return err;
-
-    // Read run time blob
     size_t required_size = 0;  // value will default to 0, if not set yet in NVS
-    // obtain required memory space to store blob being read from NVS
     err = nvs_get_blob(my_handle, key, NULL, &required_size);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
     if (required_size == 0) {
@@ -769,8 +762,8 @@ static esp_err_t delete_ir_handler(httpd_req_t *req) {
                 ir_item.id = 1;
                 strncpy(ir_item.name, param, MAX_IR_NAME_LENGTH);
                 ir_item.name[MAX_IR_NAME_LENGTH] = '\0';
-
                 remove_ir_index_handler(ir_item);
+                erase_ir_signal(param);
                 ESP_LOGI(TAG, "%s", param);
                 httpd_resp_send(req, param, strlen(param));
             } else {
