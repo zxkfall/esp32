@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/unistd.h>
 #include <esp_task.h>
+#include <esp_mac.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
@@ -95,6 +96,98 @@ static void initialize_nvs();
 
 static void configure_http_server();
 
+/* HTML页面 */
+static const char *html_form =
+        "<html><body>"
+        "<h1>Enter Wi-Fi Credentials</h1>"
+        "<form action=\"/wifi\" method=\"post\" enctype=\"application/x-www-form-urlencoded\">"
+        "SSID: <input type=\"text\" name=\"ssid\"><br>"
+        "Password: <input type=\"password\" name=\"password\"><br>"
+        "<input type=\"submit\" value=\"Submit\">"
+        "</form>"
+        "</body></html>";
+
+/* 解析HTTP POST请求中的Wi-Fi凭据 */
+void parse_wifi_credentials(char *content, char *ssid, char *password) {
+    char *pair = content;
+    while (*pair != '\0') {
+        // 查找键值对的分隔符 "&"
+        char *ampersand = strchr(pair, '&');
+        if (ampersand != NULL) {
+            *ampersand = '\0';  // 将键值对的分隔符改为字符串结束符，将其分割为键和值
+        }
+
+        // 查找键值对的分隔符 "="
+        char *equal_sign = strchr(pair, '=');
+        if (equal_sign != NULL) {
+            *equal_sign = '\0';  // 将键值对的分隔符改为字符串结束符，将其分割为键和值
+            char *key = pair;
+            char *value = equal_sign + 1;
+
+            // 提取键和值到相应的缓冲区
+            if (strcmp(key, "ssid") == 0) {
+                strncpy(ssid, value, strlen(ssid) + 1);
+            } else if (strcmp(key, "password") == 0) {
+                strncpy(password, value, strlen(password) + 1);
+            }
+        }
+
+        // 如果存在下一个键值对，则将指针移动到下一个键值对的起始位置
+        if (ampersand != NULL) {
+            pair = ampersand + 1;
+        } else {
+            break;  // 如果已经没有下一个键值对，则退出循环
+        }
+    }
+}
+
+/* 处理HTTP POST请求 */
+esp_err_t handle_post(httpd_req_t *req) {
+    char content[1024];
+    memset(content, 0, sizeof(content));
+
+    size_t recv_size = req->content_len;
+    if (recv_size > sizeof(content) - 1) {
+        recv_size = sizeof(content) - 1;
+    }
+
+    int ret = httpd_req_recv(req, content, recv_size);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    char ssid[32];
+    char pwd[64];
+    ESP_LOGI(TAG, "Received content: %s", content);
+
+    parse_wifi_credentials(content, ssid, pwd);
+    ESP_LOGI(TAG, "SSID: %s, Password: %s", ssid, pwd);
+    httpd_resp_send(req, "Credentials received!", strlen("Credentials received!"));
+    return ESP_OK;
+}
+
+/* 处理HTTP GET请求 */
+esp_err_t handle_get(httpd_req_t *req) {
+    httpd_resp_send(req, html_form, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+/* HTTP服务器路由 */
+httpd_uri_t get_wifi = {
+        .uri = "/wifi",
+        .method = HTTP_GET,
+        .handler = handle_get,
+        .user_ctx = NULL};
+
+httpd_uri_t config_wifi = {
+        .uri = "/wifi",
+        .method = HTTP_POST,
+        .handler = handle_post,
+        .user_ctx = NULL};
+
+
 static httpd_uri_t index_html = {
         .uri       = "/",
         .method    = HTTP_GET,
@@ -132,7 +225,9 @@ static const httpd_uri_t *handlers[] = {
         &receive_ir_action,
         &cancel_receive_ir_action,
         &delete_ir_action,
-        &index_html
+        &index_html,
+        &get_wifi,
+        &config_wifi,
 };
 
 void app_main() {
@@ -194,10 +289,11 @@ static void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, NULL));
 
-    // Initialize default station as network interface instance (esp-netif)
     esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
     assert(sta_netif);
-    esp_netif_set_hostname(sta_netif, "IR_Remote_Control");
+    esp_netif_set_hostname(sta_netif, "wifi-control");
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+
     // Initialize and start WiFi
     wifi_config_t wifi_config = {
             .sta = {
@@ -209,10 +305,36 @@ static void configure_wifi(void) {
                     .threshold.authmode = WIFI_AUTH_OPEN,
             },
     };
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    esp_netif_set_default_netif(sta_netif);
+
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    wifi_config_t wifi_ap_config = {
+            .ap = {
+                    .ssid = "esp_config",
+                    .ssid_len = strlen("esp_config"),
+                    .password = "",
+                    .channel = 0,
+                    .max_connection = 4,
+                    .authmode = WIFI_AUTH_WPA2_PSK,
+                    .pmf_cfg = {
+                            .required = false,
+                    },
+            },
+    };
+    wifi_ap_config.ap.authmode = WIFI_AUTH_OPEN;
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
+
     ESP_ERROR_CHECK(esp_wifi_start());
+    /* Set sta as the default interface */
+    /* Enable napt on the AP netif */
+
+    if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
+        ESP_LOGE(TAG, "NAPT not enabled on the netif: %p", ap_netif);
+    }
+
 }
+
 
 static void configure_http_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -249,6 +371,14 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         /* Set the GPIO level according to the state (LOW or HIGH)*/
         gpio_set_level(WIFI_STATUS_GPIO_NUM, 1);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *) event_data;
+        ESP_LOGI(TAG, "Station "MACSTR" joined, AID=%d",
+                 MAC2STR(event->mac), event->aid);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *) event_data;
+        ESP_LOGI(TAG, "Station "MACSTR" left, AID=%d",
+                 MAC2STR(event->mac), event->aid);
     }
 }
 
