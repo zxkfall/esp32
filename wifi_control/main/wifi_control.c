@@ -60,6 +60,9 @@ static rmt_symbol_word_t *total_avg;
 static size_t ir_mode = 0; // 0: send, 1: receive, 2: other
 static size_t receive_status = 0; // 0: start/not finished, 1: finished
 
+static bool is_sta_got_ip = false;
+static bool is_ap_started = false;
+
 static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const char *key);
 
 static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, const char *key);
@@ -99,6 +102,10 @@ static void configure_http_server();
 static esp_err_t save_value(char *key, char *value);
 
 static esp_err_t get_value(char *key, char *value);
+
+static esp_err_t save_u16_value(char *key, uint16_t value);
+
+static esp_err_t get_u16_value(char *key, uint16_t *value);
 
 /* HTML页面 */
 static const char *html_form =
@@ -172,7 +179,6 @@ esp_err_t handle_post(httpd_req_t *req) {
 
     ESP_LOGI(TAG, "SSID: %s, Password: %s", ssid, pwd);
 
-
     httpd_resp_send(req, "Credentials received!", strlen("Credentials received!"));
     return ESP_OK;
 }
@@ -239,11 +245,41 @@ static const httpd_uri_t *handlers[] = {
         &config_wifi,
 };
 
+static void check_wifi_status_task(void *pvParameters);
+
 void app_main() {
     configure_led();
     initialize_nvs();
     configure_wifi();
     configure_http_server();
+    xTaskCreate(check_wifi_status_task, "check_wifi_status_task", 2048, NULL, 5, NULL);
+}
+
+static void check_wifi_status_task(void *pvParameters) {
+    uint16_t seconds = 0;
+    // 20s inited && not connect && not in ap: restart, set ap
+    // 20s inited && connected && in ap: restart, not set ap
+    // 20s inited && not connect && in ap: do nothing
+    while (1) {
+        uint16_t status = 0x00;
+        get_u16_value("wifi_status", &status);
+        if (seconds > 20 && !is_sta_got_ip && !is_ap_started) {
+            ESP_LOGI(TAG, "Restart and set AP");
+            save_u16_value("wifi_status", 0x01);
+            esp_restart();
+        } else if (seconds > 20 && is_sta_got_ip && is_ap_started) {
+            ESP_LOGI(TAG, "Restart and not set AP");
+            save_u16_value("wifi_status", 0x00);
+            esp_restart();
+        } else if (seconds > 20 && !is_sta_got_ip && is_ap_started) {
+            ESP_LOGI(TAG, "Wait for connect");
+        } else if (seconds > 20 && is_sta_got_ip && !is_ap_started) {
+            ESP_LOGI(TAG, "Set sta success");
+            vTaskDelete(NULL);
+        }
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+        seconds++;
+    }
 }
 
 static void initialize_nvs() {
@@ -301,7 +337,13 @@ static void configure_wifi(void) {
     esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
     assert(sta_netif);
     esp_netif_set_hostname(sta_netif, "wifi-control");
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    uint16_t status = 0x00;
+    get_u16_value("wifi_status", &status);
+    if (status == 0x00) {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    } else if (status == 0x01) {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    }
 
     char get_ssid[32];
     char get_pwd[64];
@@ -327,32 +369,36 @@ static void configure_wifi(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     esp_netif_set_default_netif(sta_netif);
 
-    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
-    wifi_config_t wifi_ap_config = {
-            .ap = {
-                    .ssid = "esp_config",
-                    .ssid_len = strlen("esp_config"),
-                    .password = "",
-                    .channel = 0,
-                    .max_connection = 4,
-                    .authmode = WIFI_AUTH_WPA2_PSK,
-                    .pmf_cfg = {
-                            .required = false,
-                    },
-                    .ssid_hidden = 0,
-            },
-    };
 
-    wifi_ap_config.ap.authmode = WIFI_AUTH_OPEN;
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
+    if (status == 0x01) {
+        esp_netif_t *ap_netif;
+
+        ap_netif = esp_netif_create_default_wifi_ap();
+        wifi_config_t wifi_ap_config = {
+                .ap = {
+                        .ssid = "esp",
+                        .ssid_len = strlen("esp"),
+                        .password = "12345678",
+                        .channel = 0,
+                        .max_connection = 4,
+                        .authmode = WIFI_AUTH_WPA2_PSK,
+                        .pmf_cfg = {
+                                .required = false,
+                        },
+                        .ssid_hidden = 0,
+                },
+        };
+//        wifi_ap_config.ap.authmode = WIFI_AUTH_OPEN;
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
+        /* Enable napt on the AP netif */
+        if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
+            ESP_LOGE(TAG, "NAPT not enabled on the netif: %p", ap_netif);
+        }
+        is_ap_started = true;
+    }
+
 
     ESP_ERROR_CHECK(esp_wifi_start());
-    /* Set sta as the default interface */
-    /* Enable napt on the AP netif */
-
-    if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
-        ESP_LOGE(TAG, "NAPT not enabled on the netif: %p", ap_netif);
-    }
 
 }
 
@@ -384,13 +430,13 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGI(TAG, "wifi disconnected======================");
         esp_wifi_connect();
-        /* Set the GPIO level according to the state (LOW or HIGH)*/
         gpio_set_level(WIFI_STATUS_GPIO_NUM, 0);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
-        /* Set the GPIO level according to the state (LOW or HIGH)*/
+        is_sta_got_ip = true;
         gpio_set_level(WIFI_STATUS_GPIO_NUM, 1);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *) event_data;
@@ -590,6 +636,34 @@ static esp_err_t get_value(char *key, char *value) {
     err = nvs_get_str(my_handle, key, value, &required_size);
     if (err != ESP_OK) return err;
 
+    nvs_close(my_handle);
+    return ESP_OK;
+}
+
+static esp_err_t save_u16_value(char *key, const uint16_t value) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return err;
+    nvs_erase_key(my_handle, key);
+    nvs_commit(my_handle);
+    err = nvs_set_u16(my_handle, key, value);
+    if (err != ESP_OK) return err;
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) return err;
+    nvs_close(my_handle);
+    return ESP_OK;
+}
+
+static esp_err_t get_u16_value(char *key, uint16_t *value) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return err;
+    err = nvs_get_u16(my_handle, key, value);
+    if (err != ESP_OK) return err;
     nvs_close(my_handle);
     return ESP_OK;
 }
@@ -808,7 +882,8 @@ static esp_err_t erase_ir_signal(const char *key) {
     return ESP_OK;
 }
 
-static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
+static bool
+rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
 
     BaseType_t high_task_wakeup = pdFALSE;
     //set led on
@@ -1044,7 +1119,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
             char *radio_element = NULL;
             char *radio_ele_template =
                     "<div class=\"rd-op\"><input type=\"radio\" id=\"%s\" name=\"options\" value=\"%s\"><label for=\"%s\">%s</label></div>";
-            asprintf(&radio_element, radio_ele_template, items[i].name, items[i].name, items[i].name, items[i].name);
+            asprintf(&radio_element, radio_ele_template, items[i].name, items[i].name, items[i].name,
+                     items[i].name);
             if (radio_element == NULL) {
                 free(ir_items_content);
                 free(items);
