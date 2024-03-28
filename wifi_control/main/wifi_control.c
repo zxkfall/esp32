@@ -96,6 +96,10 @@ static void initialize_nvs();
 
 static void configure_http_server();
 
+static esp_err_t save_value(char *key, char *value);
+
+static esp_err_t get_value(char *key, char *value);
+
 /* HTML页面 */
 static const char *html_form =
         "<html><body>"
@@ -163,7 +167,12 @@ esp_err_t handle_post(httpd_req_t *req) {
     ESP_LOGI(TAG, "Received content: %s", content);
 
     parse_wifi_credentials(content, ssid, pwd);
+    save_value("wifi_ssid", ssid);
+    save_value("wifi_pwd", pwd);
+
     ESP_LOGI(TAG, "SSID: %s, Password: %s", ssid, pwd);
+
+
     httpd_resp_send(req, "Credentials received!", strlen("Credentials received!"));
     return ESP_OK;
 }
@@ -294,17 +303,27 @@ static void configure_wifi(void) {
     esp_netif_set_hostname(sta_netif, "wifi-control");
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
+    char get_ssid[32];
+    char get_pwd[64];
+
+    get_value("wifi_ssid", get_ssid);
+    get_value("wifi_pwd", get_pwd);
+    ESP_LOGI(TAG, "Get SSID: %s, Get Password: %s", get_ssid, get_pwd);
+
     // Initialize and start WiFi
     wifi_config_t wifi_config = {
             .sta = {
-                    .ssid = DEFAULT_SSID,
-                    .password = DEFAULT_PWD,
                     .scan_method = WIFI_FAST_SCAN,
                     .sort_method = WIFI_FAST_SCAN,
                     .threshold.rssi = -127,
                     .threshold.authmode = WIFI_AUTH_OPEN,
             },
     };
+    memcpy(wifi_config.sta.ssid, get_ssid, sizeof(get_ssid));
+    wifi_config.sta.ssid[sizeof(get_ssid) - 1] = '\0'; // 确保以 null 结尾
+    memcpy(wifi_config.sta.password, get_pwd, sizeof(get_pwd));
+    wifi_config.sta.password[sizeof(get_pwd) - 1] = '\0'; // 确保以 null 结尾
+
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     esp_netif_set_default_netif(sta_netif);
 
@@ -320,8 +339,10 @@ static void configure_wifi(void) {
                     .pmf_cfg = {
                             .required = false,
                     },
+                    .ssid_hidden = 0,
             },
     };
+
     wifi_ap_config.ap.authmode = WIFI_AUTH_OPEN;
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
 
@@ -528,6 +549,45 @@ static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const
     if (err != ESP_OK) return err;
 
     err = nvs_commit(my_handle);
+    if (err != ESP_OK) return err;
+
+    nvs_close(my_handle);
+    return ESP_OK;
+}
+
+static esp_err_t save_value(char *key, char *value) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return err;
+    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    err = nvs_get_blob(my_handle, key, NULL, &required_size);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+
+    nvs_erase_key(my_handle, key);
+    nvs_commit(my_handle);
+    err = nvs_set_str(my_handle, key, value);
+    if (err != ESP_OK) return err;
+
+    err = nvs_commit(my_handle);
+    if (err != ESP_OK) return err;
+
+    nvs_close(my_handle);
+    return ESP_OK;
+}
+
+static esp_err_t get_value(char *key, char *value) {
+    nvs_handle_t my_handle;
+    esp_err_t err;
+
+    err = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &my_handle);
+    if (err != ESP_OK) return err;
+    size_t required_size = 0;  // value will default to 0, if not set yet in NVS
+    err = nvs_get_str(my_handle, key, NULL, &required_size);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) return err;
+
+    err = nvs_get_str(my_handle, key, value, &required_size);
     if (err != ESP_OK) return err;
 
     nvs_close(my_handle);
