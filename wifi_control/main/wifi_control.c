@@ -36,8 +36,6 @@
 #define EXAMPLE_IR_RESOLUTION_HZ     (1*1000*1000) // 1MHz resolution, 1 tick = 1us
 #define EXAMPLE_IR_TX_GPIO_NUM       18
 #define EXAMPLE_IR_RX_GPIO_NUM       22
-#define DEFAULT_SSID "GL-MT3000-25f"
-#define DEFAULT_PWD "zxk123456"
 #define WIFI_STATUS_GPIO_NUM 4
 #define REQUEST_GPIO_NUM 2
 #define TMT_STATUS_GPIO_NUM 16
@@ -107,6 +105,10 @@ static esp_err_t save_u16_value(char *key, uint16_t value);
 
 static esp_err_t get_u16_value(char *key, uint16_t *value);
 
+static void restart_task(void *pvParameters);
+
+static esp_err_t restart_handler(httpd_req_t *req);
+
 /* HTML页面 */
 static const char *html_form =
         "<html><body>"
@@ -115,6 +117,9 @@ static const char *html_form =
         "SSID: <input type=\"text\" name=\"ssid\"><br>"
         "Password: <input type=\"password\" name=\"password\"><br>"
         "<input type=\"submit\" value=\"Submit\">"
+        "</form>"
+        "<form action=\"/restart\" method=\"post\" enctype=\"application/x-www-form-urlencoded\">"
+        "<input type=\"submit\" value=\"Restart\">"
         "</form>"
         "</body></html>";
 
@@ -190,18 +195,23 @@ esp_err_t handle_get(httpd_req_t *req) {
 }
 
 /* HTTP服务器路由 */
-httpd_uri_t get_wifi = {
+static httpd_uri_t get_wifi = {
         .uri = "/wifi",
         .method = HTTP_GET,
         .handler = handle_get,
         .user_ctx = NULL};
 
-httpd_uri_t config_wifi = {
+static httpd_uri_t config_wifi = {
         .uri = "/wifi",
         .method = HTTP_POST,
         .handler = handle_post,
         .user_ctx = NULL};
 
+static httpd_uri_t restart = {
+        .uri = "/restart",
+        .method = HTTP_POST,
+        .handler = restart_handler,
+};
 
 static httpd_uri_t index_html = {
         .uri       = "/",
@@ -242,6 +252,7 @@ static const httpd_uri_t *handlers[] = {
         &delete_ir_action,
         &index_html,
         &get_wifi,
+        &restart,
         &config_wifi,
 };
 
@@ -1175,5 +1186,16 @@ static esp_err_t index_handler(httpd_req_t *req) {
     nvs_close(nvs_handler);
     asiprintf(&indexBuffer, index_page, ir_items_content);
     httpd_resp_send(req, indexBuffer, strlen(indexBuffer));
+    return ESP_OK;
+}
+
+static void restart_task(void *pvParameters) {
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    esp_restart();
+}
+
+static esp_err_t restart_handler(httpd_req_t *req) {
+    httpd_resp_send(req, "Restarting...", strlen("Restarting..."));
+    xTaskCreate(restart_task, "restart_task", 1024, NULL, 5, NULL);
     return ESP_OK;
 }
