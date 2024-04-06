@@ -356,7 +356,7 @@ static void configure_wifi(void) {
     wifi_config_t wifi_config = {
             .sta = {
                     .scan_method = WIFI_FAST_SCAN,
-                    .sort_method = WIFI_FAST_SCAN,
+                    .sort_method = WIFI_CONNECT_AP_BY_SECURITY,
                     .threshold.rssi = -127,
                     .threshold.authmode = WIFI_AUTH_OPEN,
             },
