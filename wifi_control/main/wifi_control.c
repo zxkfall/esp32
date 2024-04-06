@@ -33,19 +33,19 @@
  *      case2(receive status is yes) do nothing
  *
  */
-#define EXAMPLE_IR_RESOLUTION_HZ     (1*1000*1000) // 1MHz resolution, 1 tick = 1us
-#define EXAMPLE_IR_TX_GPIO_NUM       18
-#define EXAMPLE_IR_RX_GPIO_NUM       22
-#define WIFI_STATUS_GPIO_NUM 4
-#define REQUEST_GPIO_NUM 2
-#define TMT_STATUS_GPIO_NUM 16
-#define STORAGE_NAMESPACE "storage"
-#define RECEIVE_MODE 1
-#define SEND_MODE 0
-#define OTHER_MODE 2
-#define FINISHED 1
-#define NOT_FINISHED 0
-#define MAX_IR_NAME_LENGTH 25
+#define EXAMPLE_IR_RESOLUTION_HZ    (1*1000*1000) // 1MHz resolution, 1 tick = 1us
+#define EXAMPLE_IR_TX_GPIO_NUM      18
+#define EXAMPLE_IR_RX_GPIO_NUM      22
+#define WIFI_STATUS_GPIO_NUM        4
+#define REQUEST_GPIO_NUM            2
+#define TMT_STATUS_GPIO_NUM         16
+#define STORAGE_NAMESPACE           "storage"
+#define RECEIVE_MODE                1
+#define SEND_MODE                   0
+#define OTHER_MODE                  2
+#define FINISHED                    1
+#define NOT_FINISHED                0
+#define MAX_IR_NAME_LENGTH          25
 
 static const char *TAG = "WIFI_CONTROL";
 static rmt_channel_handle_t tx_channel = NULL;
@@ -61,18 +61,46 @@ static size_t receive_status = 0; // 0: start/not finished, 1: finished
 static bool is_sta_got_ip = false;
 static bool is_ap_started = false;
 
+// configure init
+static void initialize_nvs();
+
+static void configure_led();
+
+static void configure_ir_tx();
+
+static void configure_ir_rx();
+
+static void configure_wifi();
+
+static void configure_http_server();
+
+// method
 static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const char *key);
 
 static esp_err_t get_ir_signal(rmt_symbol_word_t **symbols, size_t *length, const char *key);
 
 static void ir_send(rmt_symbol_word_t *symbols, size_t length);
 
-static void ir_receiver_task(void *pvParameters);
-
-static void configure_led(void);
-
 static bool rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data);
 
+static esp_err_t save_value(char *key, char *value);
+
+static esp_err_t get_value(char *key, char *value);
+
+static esp_err_t save_u16_value(char *key, uint16_t value);
+
+static esp_err_t get_u16_value(char *key, uint16_t *value);
+
+static void parse_wifi_credentials(char *content, char *ssid, char *password);
+
+// task
+static void restart_task(void *pvParameters);
+
+static void ir_receiver_task(void *pvParameters);
+
+static void check_wifi_status_task(void *pvParameters);
+
+// http server handler
 static esp_err_t save_ir_handler(httpd_req_t *req);
 
 static esp_err_t delete_ir_handler(httpd_req_t *req);
@@ -85,126 +113,25 @@ static esp_err_t cancel_receive_ir_handler(httpd_req_t *req);
 
 static esp_err_t index_handler(httpd_req_t *req);
 
-static void configure_ir_tx();
-
-static void configure_ir_rx();
-
-static void configure_wifi();
-
-static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-
-static void initialize_nvs();
-
-static void configure_http_server();
-
-static esp_err_t save_value(char *key, char *value);
-
-static esp_err_t get_value(char *key, char *value);
-
-static esp_err_t save_u16_value(char *key, uint16_t value);
-
-static esp_err_t get_u16_value(char *key, uint16_t *value);
-
-static void restart_task(void *pvParameters);
-
 static esp_err_t restart_handler(httpd_req_t *req);
 
-/* HTML页面 */
-static const char *html_form =
-        "<html><body>"
-        "<h1>Enter Wi-Fi Credentials</h1>"
-        "<form action=\"/wifi\" method=\"post\" enctype=\"application/x-www-form-urlencoded\">"
-        "SSID: <input type=\"text\" name=\"ssid\"><br>"
-        "Password: <input type=\"password\" name=\"password\"><br>"
-        "<input type=\"submit\" value=\"Submit\">"
-        "</form>"
-        "<form action=\"/restart\" method=\"post\" enctype=\"application/x-www-form-urlencoded\">"
-        "<input type=\"submit\" value=\"Restart\">"
-        "</form>"
-        "</body></html>";
+static esp_err_t wifi_configure_handler(httpd_req_t *req);
 
-/* 解析HTTP POST请求中的Wi-Fi凭据 */
-void parse_wifi_credentials(char *content, char *ssid, char *password) {
-    char *pair = content;
-    while (*pair != '\0') {
-        // 查找键值对的分隔符 "&"
-        char *ampersand = strchr(pair, '&');
-        if (ampersand != NULL) {
-            *ampersand = '\0';  // 将键值对的分隔符改为字符串结束符，将其分割为键和值
-        }
+static esp_err_t wifi_index_handler(httpd_req_t *req);
 
-        // 查找键值对的分隔符 "="
-        char *equal_sign = strchr(pair, '=');
-        if (equal_sign != NULL) {
-            *equal_sign = '\0';  // 将键值对的分隔符改为字符串结束符，将其分割为键和值
-            char *key = pair;
-            char *value = equal_sign + 1;
+// wifi event handler
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
-            // 提取键和值到相应的缓冲区
-            if (strcmp(key, "ssid") == 0) {
-                strncpy(ssid, value, strlen(ssid) + 1);
-            } else if (strcmp(key, "password") == 0) {
-                strncpy(password, value, strlen(password) + 1);
-            }
-        }
-
-        // 如果存在下一个键值对，则将指针移动到下一个键值对的起始位置
-        if (ampersand != NULL) {
-            pair = ampersand + 1;
-        } else {
-            break;  // 如果已经没有下一个键值对，则退出循环
-        }
-    }
-}
-
-/* 处理HTTP POST请求 */
-esp_err_t handle_post(httpd_req_t *req) {
-    char content[1024];
-    memset(content, 0, sizeof(content));
-
-    size_t recv_size = req->content_len;
-    if (recv_size > sizeof(content) - 1) {
-        recv_size = sizeof(content) - 1;
-    }
-
-    int ret = httpd_req_recv(req, content, recv_size);
-    if (ret <= 0) {
-        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-            httpd_resp_send_408(req);
-        }
-        return ESP_FAIL;
-    }
-    char ssid[32];
-    char pwd[64];
-    ESP_LOGI(TAG, "Received content: %s", content);
-
-    parse_wifi_credentials(content, ssid, pwd);
-    save_value("wifi_ssid", ssid);
-    save_value("wifi_pwd", pwd);
-
-    ESP_LOGI(TAG, "SSID: %s, Password: %s", ssid, pwd);
-
-    httpd_resp_send(req, "Credentials received!", strlen("Credentials received!"));
-    return ESP_OK;
-}
-
-/* 处理HTTP GET请求 */
-esp_err_t handle_get(httpd_req_t *req) {
-    httpd_resp_send(req, html_form, HTTPD_RESP_USE_STRLEN);
-    return ESP_OK;
-}
-
-/* HTTP服务器路由 */
 static httpd_uri_t get_wifi = {
         .uri = "/wifi",
         .method = HTTP_GET,
-        .handler = handle_get,
+        .handler = wifi_index_handler,
         .user_ctx = NULL};
 
 static httpd_uri_t config_wifi = {
         .uri = "/wifi",
         .method = HTTP_POST,
-        .handler = handle_post,
+        .handler = wifi_configure_handler,
         .user_ctx = NULL};
 
 static httpd_uri_t restart = {
@@ -256,7 +183,6 @@ static const httpd_uri_t *handlers[] = {
         &config_wifi,
 };
 
-static void check_wifi_status_task(void *pvParameters);
 
 void app_main() {
     configure_led();
@@ -266,32 +192,10 @@ void app_main() {
     xTaskCreate(check_wifi_status_task, "check_wifi_status_task", 2048, NULL, 5, NULL);
 }
 
-static void check_wifi_status_task(void *pvParameters) {
-    uint16_t seconds = 0;
-    // 20s inited && not connect && not in ap: restart, set ap
-    // 20s inited && connected && in ap: restart, not set ap
-    // 20s inited && not connect && in ap: do nothing
-    while (1) {
-        uint16_t status = 0x00;
-        get_u16_value("wifi_status", &status);
-        if (seconds > 20 && !is_sta_got_ip && !is_ap_started) {
-            ESP_LOGI(TAG, "Restart and set AP");
-            save_u16_value("wifi_status", 0x01);
-            esp_restart();
-        } else if (seconds > 20 && is_sta_got_ip && is_ap_started) {
-            ESP_LOGI(TAG, "Restart and not set AP");
-            save_u16_value("wifi_status", 0x00);
-            esp_restart();
-        } else if (seconds > 20 && !is_sta_got_ip && is_ap_started) {
-            ESP_LOGI(TAG, "Wait for connect");
-        } else if (seconds > 20 && is_sta_got_ip && !is_ap_started) {
-            ESP_LOGI(TAG, "Set sta success");
-            vTaskDelete(NULL);
-        }
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
-        seconds++;
-    }
-}
+typedef struct {
+    int id;
+    char name[MAX_IR_NAME_LENGTH + 1];
+} IRItem;
 
 static void initialize_nvs() {
     esp_err_t ret = nvs_flash_init();
@@ -413,7 +317,6 @@ static void configure_wifi(void) {
 
 }
 
-
 static void configure_http_server() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server;
@@ -424,7 +327,7 @@ static void configure_http_server() {
     }
 }
 
-static void configure_led(void) {
+static void configure_led() {
     ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
     gpio_reset_pin(TMT_STATUS_GPIO_NUM);
     /* Set the GPIO as a push/pull output */
@@ -482,103 +385,6 @@ static void ir_send(rmt_symbol_word_t *symbols, size_t length) {
     rmt_del_channel(tx_channel);
     ESP_LOGI(TAG, "Send the average value done");
     vTaskDelay(1000 / portTICK_PERIOD_MS);
-}
-
-static void ir_receiver_task(void *pvParameters) {
-    configure_ir_rx();
-    ESP_ERROR_CHECK(rmt_enable(rx_channel));
-    QueueHandle_t receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
-    rmt_rx_event_callbacks_t cbs = {
-            .on_recv_done = rmt_rx_done_callback,
-    };
-    ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(rx_channel, &cbs, receive_queue));
-    // 以下时间要求均基于 NEC 协议
-    rmt_receive_config_t receive_config = {
-            .signal_range_min_ns = 1250,     // NEC 信号的最短持续时间为 560 µs，由于 1250 ns < 560 µs，有效信号不会视为噪声
-            .signal_range_max_ns = 50 * 1000 * 1000, // NEC 信号的最长持续时间为 9000 µs，由于 12000000 ns > 9000 µs，接收不会提前停止
-            .flags.en_partial_rx = false,    // 不需要部分接收
-    };
-
-    rmt_symbol_word_t raw_symbols[256]; // 为接收的符号分配内存
-
-    // 准备开始接收
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
-    // 等待 RX 完成信号
-    rmt_rx_done_event_data_t rx_data;
-
-    int learning_times = 4;
-    int current_learning_times = 0;
-    rmt_symbol_word_t total_raw_symbols[learning_times][symbol_num];
-    uint8_t is_inited = 0;
-    while (1) {
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        if (!is_inited && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
-            ESP_LOGI(TAG, "init symbol_length: %d", rx_data.num_symbols);
-            symbol_num = rx_data.num_symbols;
-            is_inited = 1;
-            ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
-        } else {
-            if (current_learning_times < learning_times &&
-                xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
-                if (symbol_num != rx_data.num_symbols) {
-                    ESP_LOGI(TAG, "symbol_length not match, current symbol_length is %d, please send again",
-                             rx_data.num_symbols);
-                    ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
-                    continue;
-                }
-                ESP_LOGI(TAG, "waiting for receive, start learning times: %d", current_learning_times + 1);
-                rmt_symbol_word_t *receivedSymbols = rx_data.received_symbols;
-                for (int i = 0; i < rx_data.num_symbols; ++i) {
-                    total_raw_symbols[current_learning_times][i] = receivedSymbols[i];
-                }
-                current_learning_times++;
-                if (current_learning_times == learning_times) {
-                    continue;
-                }
-                ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
-            }
-            if (current_learning_times == learning_times) {
-                printf("\r\n");
-                total_avg = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * symbol_num);
-
-                uint32_t duration0s[symbol_num];
-                uint32_t duration1s[symbol_num];
-                for (int i = 0; i < symbol_num; ++i) {
-                    duration0s[i] = 0;
-                    duration1s[i] = 0;
-                }
-                for (int i = 0; i < learning_times; ++i) {
-                    for (int j = 0; j < symbol_num; ++j) {
-                        duration0s[j] += total_raw_symbols[i][j].duration0;
-                        duration1s[j] += total_raw_symbols[i][j].duration1;
-                    }
-                }
-                for (int i = 0; i < symbol_num; ++i) {
-                    duration0s[i] /= learning_times;
-                    duration1s[i] /= learning_times;
-                }
-
-                for (int i = 0; i < symbol_num; ++i) {
-                    total_avg[i].duration0 = duration0s[i];
-                    total_avg[i].duration1 = duration1s[i];
-                    total_avg[i].level0 = 1;
-                    total_avg[i].level1 = 0;
-                    printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
-                }
-                printf("\r\n");
-                ESP_LOGI(TAG, "learning done");
-                receive_status = FINISHED;
-                ir_mode = OTHER_MODE;
-                if (rx_channel != NULL) {
-                    rmt_disable(rx_channel);
-                    rmt_del_channel(rx_channel);
-                    rx_channel = NULL;
-                }
-                vTaskDelete(NULL);
-            }
-        }
-    }
 }
 
 static esp_err_t save_ir_signal(rmt_symbol_word_t *symbols, size_t length, const char *key) {
@@ -678,11 +484,6 @@ static esp_err_t get_u16_value(char *key, uint16_t *value) {
     nvs_close(my_handle);
     return ESP_OK;
 }
-
-typedef struct {
-    int id;
-    char name[MAX_IR_NAME_LENGTH + 1];
-} IRItem;
 
 // 将结构体数组序列化为字节序列
 static void serialize_struct_array(IRItem *array, size_t length, uint8_t **data, size_t *size) {
@@ -907,7 +708,6 @@ rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_
     // 返回是否唤醒了任何任务
     return high_task_wakeup == pdTRUE;
 }
-
 
 static esp_err_t save_ir_handler(httpd_req_t *req) {
     if (ir_mode != RECEIVE_MODE && receive_status == FINISHED) {
@@ -1189,6 +989,177 @@ static esp_err_t index_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t wifi_configure_handler(httpd_req_t *req) {
+    char content[1024];
+    memset(content, 0, sizeof(content));
+
+    size_t recv_size = req->content_len;
+    if (recv_size > sizeof(content) - 1) {
+        recv_size = sizeof(content) - 1;
+    }
+
+    int ret = httpd_req_recv(req, content, recv_size);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    char ssid[32];
+    char pwd[64];
+    ESP_LOGI(TAG, "Received content: %s", content);
+
+    parse_wifi_credentials(content, ssid, pwd);
+    save_value("wifi_ssid", ssid);
+    save_value("wifi_pwd", pwd);
+
+    ESP_LOGI(TAG, "SSID: %s, Password: %s", ssid, pwd);
+
+    httpd_resp_send(req, "Credentials received!", strlen("Credentials received!"));
+    return ESP_OK;
+}
+
+static esp_err_t wifi_index_handler(httpd_req_t *req) {
+    const char *html_form =
+            "<html><body>"
+            "<h1>Enter Wi-Fi Credentials</h1>"
+            "<form action=\"/wifi\" method=\"post\" enctype=\"application/x-www-form-urlencoded\">"
+            "SSID: <input type=\"text\" name=\"ssid\"><br>"
+            "Password: <input type=\"password\" name=\"password\"><br>"
+            "<input type=\"submit\" value=\"Submit\">"
+            "</form>"
+            "<form action=\"/restart\" method=\"post\" enctype=\"application/x-www-form-urlencoded\">"
+            "<input type=\"submit\" value=\"Restart\">"
+            "</form>"
+            "</body></html>";
+    httpd_resp_send(req, html_form, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+static void check_wifi_status_task(void *pvParameters) {
+    uint16_t seconds = 0;
+    // 20s inited && not connect && not in ap: restart, set ap
+    // 20s inited && connected && in ap: restart, not set ap
+    // 20s inited && not connect && in ap: do nothing
+    while (1) {
+        uint16_t status = 0x00;
+        get_u16_value("wifi_status", &status);
+        if (seconds > 20 && !is_sta_got_ip && !is_ap_started) {
+            ESP_LOGI(TAG, "Restart and set AP");
+            save_u16_value("wifi_status", 0x01);
+            esp_restart();
+        } else if (seconds > 20 && is_sta_got_ip && is_ap_started) {
+            ESP_LOGI(TAG, "Restart and not set AP");
+            save_u16_value("wifi_status", 0x00);
+            esp_restart();
+        } else if (seconds > 20 && !is_sta_got_ip && is_ap_started) {
+            ESP_LOGI(TAG, "Wait for connect");
+        } else if (seconds > 20 && is_sta_got_ip && !is_ap_started) {
+            ESP_LOGI(TAG, "Set sta success");
+            vTaskDelete(NULL);
+        }
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+        seconds++;
+    }
+}
+
+static void ir_receiver_task(void *pvParameters) {
+    configure_ir_rx();
+    ESP_ERROR_CHECK(rmt_enable(rx_channel));
+    QueueHandle_t receive_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
+    rmt_rx_event_callbacks_t cbs = {
+            .on_recv_done = rmt_rx_done_callback,
+    };
+    ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(rx_channel, &cbs, receive_queue));
+    // 以下时间要求均基于 NEC 协议
+    rmt_receive_config_t receive_config = {
+            .signal_range_min_ns = 1250,     // NEC 信号的最短持续时间为 560 µs，由于 1250 ns < 560 µs，有效信号不会视为噪声
+            .signal_range_max_ns = 50 * 1000 * 1000, // NEC 信号的最长持续时间为 9000 µs，由于 12000000 ns > 9000 µs，接收不会提前停止
+            .flags.en_partial_rx = false,    // 不需要部分接收
+    };
+
+    rmt_symbol_word_t raw_symbols[256]; // 为接收的符号分配内存
+
+    // 准备开始接收
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
+    // 等待 RX 完成信号
+    rmt_rx_done_event_data_t rx_data;
+
+    int learning_times = 4;
+    int current_learning_times = 0;
+    rmt_symbol_word_t total_raw_symbols[learning_times][symbol_num];
+    uint8_t is_inited = 0;
+    while (1) {
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        if (!is_inited && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
+            ESP_LOGI(TAG, "init symbol_length: %d", rx_data.num_symbols);
+            symbol_num = rx_data.num_symbols;
+            is_inited = 1;
+            ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
+        } else {
+            if (current_learning_times < learning_times &&
+                xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
+                if (symbol_num != rx_data.num_symbols) {
+                    ESP_LOGI(TAG, "symbol_length not match, current symbol_length is %d, please send again",
+                             rx_data.num_symbols);
+                    ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
+                    continue;
+                }
+                ESP_LOGI(TAG, "waiting for receive, start learning times: %d", current_learning_times + 1);
+                rmt_symbol_word_t *receivedSymbols = rx_data.received_symbols;
+                for (int i = 0; i < rx_data.num_symbols; ++i) {
+                    total_raw_symbols[current_learning_times][i] = receivedSymbols[i];
+                }
+                current_learning_times++;
+                if (current_learning_times == learning_times) {
+                    continue;
+                }
+                ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
+            }
+            if (current_learning_times == learning_times) {
+                printf("\r\n");
+                total_avg = (rmt_symbol_word_t *) malloc(sizeof(rmt_symbol_word_t) * symbol_num);
+
+                uint32_t duration0s[symbol_num];
+                uint32_t duration1s[symbol_num];
+                for (int i = 0; i < symbol_num; ++i) {
+                    duration0s[i] = 0;
+                    duration1s[i] = 0;
+                }
+                for (int i = 0; i < learning_times; ++i) {
+                    for (int j = 0; j < symbol_num; ++j) {
+                        duration0s[j] += total_raw_symbols[i][j].duration0;
+                        duration1s[j] += total_raw_symbols[i][j].duration1;
+                    }
+                }
+                for (int i = 0; i < symbol_num; ++i) {
+                    duration0s[i] /= learning_times;
+                    duration1s[i] /= learning_times;
+                }
+
+                for (int i = 0; i < symbol_num; ++i) {
+                    total_avg[i].duration0 = duration0s[i];
+                    total_avg[i].duration1 = duration1s[i];
+                    total_avg[i].level0 = 1;
+                    total_avg[i].level1 = 0;
+                    printf("%d,%d ", total_avg[i].duration0, total_avg[i].duration1);
+                }
+                printf("\r\n");
+                ESP_LOGI(TAG, "learning done");
+                receive_status = FINISHED;
+                ir_mode = OTHER_MODE;
+                if (rx_channel != NULL) {
+                    rmt_disable(rx_channel);
+                    rmt_del_channel(rx_channel);
+                    rx_channel = NULL;
+                }
+                vTaskDelete(NULL);
+            }
+        }
+    }
+}
+
 static void restart_task(void *pvParameters) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     esp_restart();
@@ -1199,3 +1170,38 @@ static esp_err_t restart_handler(httpd_req_t *req) {
     xTaskCreate(restart_task, "restart_task", 1024, NULL, 5, NULL);
     return ESP_OK;
 }
+
+static void parse_wifi_credentials(char *content, char *ssid, char *password) {
+    char *pair = content;
+    while (*pair != '\0') {
+        // 查找键值对的分隔符 "&"
+        char *ampersand = strchr(pair, '&');
+        if (ampersand != NULL) {
+            *ampersand = '\0';  // 将键值对的分隔符改为字符串结束符，将其分割为键和值
+        }
+
+        // 查找键值对的分隔符 "="
+        char *equal_sign = strchr(pair, '=');
+        if (equal_sign != NULL) {
+            *equal_sign = '\0';  // 将键值对的分隔符改为字符串结束符，将其分割为键和值
+            char *key = pair;
+            char *value = equal_sign + 1;
+
+            // 提取键和值到相应的缓冲区
+            if (strcmp(key, "ssid") == 0) {
+                strncpy(ssid, value, strlen(ssid) + 1);
+            } else if (strcmp(key, "password") == 0) {
+                strncpy(password, value, strlen(password) + 1);
+            }
+        }
+
+        // 如果存在下一个键值对，则将指针移动到下一个键值对的起始位置
+        if (ampersand != NULL) {
+            pair = ampersand + 1;
+        } else {
+            break;  // 如果已经没有下一个键值对，则退出循环
+        }
+    }
+}
+
+
