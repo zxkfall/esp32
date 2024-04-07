@@ -698,14 +698,11 @@ static bool
 rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
 
     BaseType_t high_task_wakeup = pdFALSE;
-    //set led on
     led_level = ~led_level;
     gpio_set_level(TMT_STATUS_GPIO_NUM, led_level);
 
     QueueHandle_t receive_queue = (QueueHandle_t) user_data;
-    // 将接收到的 RMT 符号发送到解析任务的消息队列中
     xQueueSendFromISR(receive_queue, edata, &high_task_wakeup);
-    // 返回是否唤醒了任何任务
     return high_task_wakeup == pdTRUE;
 }
 
