@@ -5,6 +5,8 @@
 #include <sys/unistd.h>
 #include <esp_task.h>
 #include <esp_mac.h>
+#include <lwip/inet.h>
+#include <lwip/sockets.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
@@ -183,6 +185,7 @@ static const httpd_uri_t *handlers[] = {
         &config_wifi,
 };
 
+static void udp_broadcast_task(void *pvParameters);
 
 void app_main() {
     configure_led();
@@ -190,6 +193,8 @@ void app_main() {
     configure_wifi();
     configure_http_server();
     xTaskCreate(check_wifi_status_task, "check_wifi_status_task", 2048, NULL, 5, NULL);
+
+    xTaskCreate(udp_broadcast_task, "udp_broadcast_task", 2048, NULL, 5, NULL);
 }
 
 typedef struct {
@@ -340,6 +345,8 @@ static void configure_led() {
     gpio_set_direction(REQUEST_GPIO_NUM, GPIO_MODE_OUTPUT);
 }
 
+static esp_netif_ip_info_t netif_ip_info;
+
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
@@ -350,6 +357,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        netif_ip_info = event->ip_info;
         is_sta_got_ip = true;
         gpio_set_level(WIFI_STATUS_GPIO_NUM, 1);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
@@ -1201,4 +1209,46 @@ static void parse_wifi_credentials(char *content, char *ssid, char *password) {
     }
 }
 
+#define UDP_PORT 9999
+
+static void udp_broadcast_task(void *pvParameters) {
+
+    while (1) {
+        esp_netif_ip_info_t ip_info;
+        ip_info = netif_ip_info;
+        esp_ip4_addr_t ip4_addr = ip_info.ip;
+        ESP_LOGI(TAG, "Broadcast IP: %lu.%lu.%lu.%lu", ip4_addr.addr & 0xFF, (ip4_addr.addr >> 8) & 0xFF,
+                 (ip4_addr.addr >> 16) & 0xFF, (ip4_addr.addr >> 24) & 0xFF);
+        char broadcast_data[64];
+        sprintf(broadcast_data, "WIFI Controller IP: %lu.%lu.%lu.%lu", ip4_addr.addr & 0xFF,
+                (ip4_addr.addr >> 8) & 0xFF,
+                (ip4_addr.addr >> 16) & 0xFF, (ip4_addr.addr >> 24) & 0xFF);
+
+        struct sockaddr_in dest_addr;
+        dest_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(UDP_PORT);
+
+        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+        if (sock < 0) {
+            ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+            break;
+        }
+
+        int broadcast = 1;
+        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast)) < 0) {
+            ESP_LOGE(TAG, "Unable to set broadcast option: errno %d", errno);
+            break;
+        }
+
+        int err = sendto(sock, broadcast_data, strlen(broadcast_data), 0, (struct sockaddr *) &dest_addr,
+                         sizeof(dest_addr));
+        if (err < 0) {
+            ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+        }
+
+        close(sock);
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
+}
 
