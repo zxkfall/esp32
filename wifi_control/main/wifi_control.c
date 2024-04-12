@@ -39,8 +39,9 @@
 #define EXAMPLE_IR_TX_GPIO_NUM      18
 #define EXAMPLE_IR_RX_GPIO_NUM      22
 #define WIFI_STATUS_GPIO_NUM        4
-#define REQUEST_GPIO_NUM            2
-#define TMT_STATUS_GPIO_NUM         16
+#define INIT_RMT_RECEIVE_GPIO_NUM   16
+#define VALID_RMT_LEARN_GPIO_NUM    17
+#define RMT_MODE_GPIO_NUM           2
 #define STORAGE_NAMESPACE           "storage"
 #define RECEIVE_MODE                1
 #define SEND_MODE                   0
@@ -54,7 +55,6 @@ static rmt_channel_handle_t tx_channel = NULL;
 static rmt_channel_handle_t rx_channel = NULL;
 static TaskHandle_t rmt_receive_task_handle = NULL;
 static TaskHandle_t rmt_send_task_handle = NULL;
-static uint8_t led_level = 0x0;
 static size_t symbol_num = 300;
 static rmt_symbol_word_t *total_avg;
 static size_t ir_mode = 0; // 0: send, 1: receive, 2: other
@@ -334,15 +334,18 @@ static void configure_http_server() {
 
 static void configure_led() {
     ESP_LOGI(TAG, "Example configured to blink GPIO LED!");
-    gpio_reset_pin(TMT_STATUS_GPIO_NUM);
+    gpio_reset_pin(RMT_MODE_GPIO_NUM);
     /* Set the GPIO as a push/pull output */
-    gpio_set_direction(TMT_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
+    gpio_set_direction(RMT_MODE_GPIO_NUM, GPIO_MODE_OUTPUT);
 
     gpio_reset_pin(WIFI_STATUS_GPIO_NUM);
     gpio_set_direction(WIFI_STATUS_GPIO_NUM, GPIO_MODE_OUTPUT);
 
-    gpio_reset_pin(REQUEST_GPIO_NUM);
-    gpio_set_direction(REQUEST_GPIO_NUM, GPIO_MODE_OUTPUT);
+    gpio_reset_pin(INIT_RMT_RECEIVE_GPIO_NUM);
+    gpio_set_direction(INIT_RMT_RECEIVE_GPIO_NUM, GPIO_MODE_OUTPUT);
+
+    gpio_reset_pin(VALID_RMT_LEARN_GPIO_NUM);
+    gpio_set_direction(VALID_RMT_LEARN_GPIO_NUM, GPIO_MODE_OUTPUT);
 }
 
 static esp_netif_ip_info_t netif_ip_info;
@@ -706,8 +709,6 @@ static bool
 rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *edata, void *user_data) {
 
     BaseType_t high_task_wakeup = pdFALSE;
-    led_level = ~led_level;
-    gpio_set_level(TMT_STATUS_GPIO_NUM, led_level);
 
     QueueHandle_t receive_queue = (QueueHandle_t) user_data;
     xQueueSendFromISR(receive_queue, edata, &high_task_wakeup);
@@ -716,7 +717,7 @@ rmt_rx_done_callback(rmt_channel_handle_t channel, const rmt_rx_done_event_data_
 
 static esp_err_t save_ir_handler(httpd_req_t *req) {
     if (ir_mode != RECEIVE_MODE && receive_status == FINISHED) {
-        gpio_set_level(REQUEST_GPIO_NUM, 1);
+        gpio_set_level(RMT_MODE_GPIO_NUM, 0);
         char *buf;
         size_t buf_len;
         buf_len = httpd_req_get_url_query_len(req) + 1;
@@ -762,8 +763,6 @@ static esp_err_t send_ir_handler(httpd_req_t *req) {
         return ESP_OK;
     }
     ir_mode = SEND_MODE;
-
-    gpio_set_level(REQUEST_GPIO_NUM, 0);
     rmt_symbol_word_t *symbols;
     size_t length = 0;
     char *buf;
@@ -817,9 +816,6 @@ static esp_err_t delete_ir_handler(httpd_req_t *req) {
         httpd_resp_send(req, res_message, strlen(res_message));
         return ESP_OK;
     }
-
-    gpio_set_level(REQUEST_GPIO_NUM, 0);
-
     char *buf;
     size_t buf_len;
     buf_len = httpd_req_get_url_query_len(req) + 1;
@@ -865,6 +861,7 @@ static esp_err_t receive_ir_handler(httpd_req_t *req) {
         httpd_resp_send(req, res_message, strlen(res_message));
         return ESP_OK;
     }
+    gpio_set_level(RMT_MODE_GPIO_NUM, 1);
     ir_mode = RECEIVE_MODE;
     receive_status = NOT_FINISHED;
     xTaskCreatePinnedToCore(ir_receiver_task, "rmt_receive_task", 8192 * 2, NULL, 5, &rmt_receive_task_handle, 1);
@@ -887,6 +884,9 @@ static esp_err_t cancel_receive_ir_handler(httpd_req_t *req) {
         vTaskDelete(rmt_receive_task_handle);
         res_message = "Cancel Receive IR Data";
     }
+    gpio_set_level(RMT_MODE_GPIO_NUM, 0);
+    gpio_set_level(INIT_RMT_RECEIVE_GPIO_NUM, 0);
+    gpio_set_level(VALID_RMT_LEARN_GPIO_NUM, 0);
     httpd_resp_send(req, res_message, strlen(res_message));
     return ESP_OK;
 }
@@ -1095,9 +1095,11 @@ static void ir_receiver_task(void *pvParameters) {
     int current_learning_times = 0;
     rmt_symbol_word_t total_raw_symbols[learning_times][symbol_num];
     uint8_t is_inited = 0;
+    uint8_t led_status = 0;
     while (1) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         if (!is_inited && xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
+            gpio_set_level(INIT_RMT_RECEIVE_GPIO_NUM, 1);
             ESP_LOGI(TAG, "init symbol_length: %d", rx_data.num_symbols);
             symbol_num = rx_data.num_symbols;
             is_inited = 1;
@@ -1106,11 +1108,13 @@ static void ir_receiver_task(void *pvParameters) {
             if (current_learning_times < learning_times &&
                 xQueueReceive(receive_queue, &rx_data, pdMS_TO_TICKS(1000)) == pdPASS) {
                 if (symbol_num != rx_data.num_symbols) {
-                    ESP_LOGI(TAG, "symbol_length not match, current symbol_length is %d, please send again",
-                             rx_data.num_symbols);
+                    ESP_LOGI(TAG, "symbol_length not match, current symbol_length is %d, init symbol_length is %d, please send again",
+                             rx_data.num_symbols, symbol_num);
                     ESP_ERROR_CHECK(rmt_receive(rx_channel, raw_symbols, sizeof(raw_symbols), &receive_config));
                     continue;
                 }
+                led_status = ~led_status;
+                gpio_set_level(VALID_RMT_LEARN_GPIO_NUM, led_status);
                 ESP_LOGI(TAG, "waiting for receive, start learning times: %d", current_learning_times + 1);
                 rmt_symbol_word_t *receivedSymbols = rx_data.received_symbols;
                 for (int i = 0; i < rx_data.num_symbols; ++i) {
@@ -1159,6 +1163,8 @@ static void ir_receiver_task(void *pvParameters) {
                     rmt_del_channel(rx_channel);
                     rx_channel = NULL;
                 }
+                gpio_set_level(INIT_RMT_RECEIVE_GPIO_NUM, 0);
+                gpio_set_level(VALID_RMT_LEARN_GPIO_NUM, 0);
                 vTaskDelete(NULL);
             }
         }
